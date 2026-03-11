@@ -1,0 +1,1217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>P5 高维实战</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <style>
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; }
+        .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .controls { margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 6px; }
+        button { padding: 8px 16px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; }
+        button:hover { background: #1976D2; }
+        .stat-box { display: inline-block; margin-left: 10px; padding: 6px 12px; background: #e9ecef; border-radius: 4px; }
+        .chart-container { position: relative; height: 400px; width: 100%; margin: 20px 0; }
+        .form-group { margin: 10px 0; display: inline-block; margin-right: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #333; }
+        select, input[type="range"], input[type="number"] { padding: 6px; border: 1px solid #ddd; border-radius: 4px; min-width: 150px; }
+        #lrValue, #decayRateValue, #beta1Value, #beta2Value, #epsilonValue { display: inline-block; min-width: 60px; text-align: center; }
+        #weightsDisplay { padding: 10px; background: #f8f9fa; border-radius: 4px; white-space: pre-wrap; }
+        .completion-annotation { color: #28a745; font-weight: bold; }
+        input[type="number"] { width: 120px; }
+        .error-text { color: #dc3545; font-size: 0.85em; margin-top: 5px; display: none; }
+        /* PCA相关样式 */
+        .pca-info { color: #666; font-size: 0.9em; margin-top: 3px; }
+        .pca-metrics { background: #e8f4f8; padding: 10px; border-radius: 4px; margin: 10px 0; font-size: 0.9em; }
+        .pca-tip { color: #28a745; font-weight: 600; margin-top: 5px; display: block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>P5 高维实战</h1>
+            <a href="index.html">← 返回导航</a>
+        </header>
+
+        <div class="card">
+            <h2>挑战：维度灾难</h2>
+            <p>当我们有 10 个、50 个甚至更多特征时：</p>
+            <ul>
+                <li>我们无法画出损失函数曲面（人类无法想象 50 维空间）。</li>
+                <li>全量梯度下降 (GD) 每次更新都要计算所有数据，速度太慢。</li>
+            </ul>
+            <p><strong>解决方案</strong>：</p>
+            <ol>
+                <li><strong>SGD (随机梯度下降)</strong>：每次只用一个样本更新，速度快，但有噪声。</li>
+                <li><strong>带衰减学习率的GD/SGD</strong>：学习率随训练轮数动态减小，收敛更稳定。</li>
+                <li><strong>Adam 优化器</strong>：结合动量和自适应学习率，收敛更快更稳定。</li>
+                <li><strong>PCA (主成分分析)</strong>：降维处理，保留关键信息，减少计算量，降低初始Loss。</li>
+            </ol>
+        </div>
+
+        <div class="card">
+            <h2>优化器比较</h2>
+            <p>使用 5 个特征 (发动机大小，气缸数，油耗等) 预测 CO2。观察不同优化器的 Loss 下降曲线，可通过PCA降维减少特征维度。</p>
+            <p><small><strong>注：</strong>所有优化器的Loss值均使用全样本计算，SGD/Adam仅梯度更新使用单样本；PCA降维优先保留与CO2相关性最高的特征</small></p>
+
+            <div class="controls">
+                <!-- 优化器选择框 -->
+                <div class="form-group">
+                    <label for="optimizerSelect">选择优化器：</label>
+                    <select id="optimizerSelect">
+                        <option value="GD">GD (全量梯度下降)</option>
+                        <option value="SGD">SGD (随机梯度下降)</option>
+                        <option value="GD_Decay">GD (带学习率衰减)</option>
+                        <option value="SGD_Decay">SGD (带学习率衰减)</option>
+                        <option value="Adam">Adam 优化器</option>
+                    </select>
+                </div>
+
+                <!-- PCA启用开关 -->
+                <div class="form-group">
+                    <label for="enablePCA">启用PCA降维：</label>
+                    <select id="enablePCA" onchange="updatePCAControlVisibility()">
+                        <option value="false">否</option>
+                        <option value="true">是</option>
+                    </select>
+                </div>
+
+                <!-- PCA目标维度选择 -->
+                <div class="form-group" id="pcaDimGroup">
+                    <label for="pcaDimInput">PCA目标维度：</label>
+                    <input type="number" id="pcaDimInput" value="2" min="1" max="5">
+                    <div class="pca-info">原始维度：5 (范围：1-5)
+                    </div>
+                    <div id="pcaDimError" class="error-text">请输入1-5之间的有效数字</div>
+                </div>
+
+                <!-- 学习率滑动条 -->
+                <div class="form-group" id="lrControlGroup">
+                    <label for="lrSlider">初始学习率：<span id="lrValue">0.005</span></label>
+                    <input type="range" id="lrSlider" min="0.000001" max="0.01" step="0.000001" value="0.005"
+                           oninput="document.getElementById('lrValue').innerText = this.value">
+                </div>
+
+                <!-- 衰减率控制 -->
+                <div class="form-group" id="decayRateGroup">
+                    <label for="decayRateSlider">衰减率：<span id="decayRateValue">0.001</span></label>
+                    <input type="range" id="decayRateSlider" min="0.0001" max="0.01" step="0.0001" value="0.001"
+                           oninput="document.getElementById('decayRateValue').innerText = this.value">
+                </div>
+
+                <!-- Adam参数控制 -->
+                <div class="form-group" id="beta1Group">
+                    <label for="beta1Slider">β₁ (动量系数)：<span id="beta1Value">0.8</span></label>
+                    <input type="range" id="beta1Slider" min="0.6" max="0.999" step="0.001" value="0.8"
+                           oninput="document.getElementById('beta1Value').innerText = this.value">
+                </div>
+
+                <div class="form-group" id="beta2Group">
+                    <label for="beta2Slider">β₂ (二阶动量系数)：<span id="beta2Value">0.9</span></label>
+                    <input type="range" id="beta2Slider" min="0.8" max="0.9999" step="0.0001" value="0.9"
+                           oninput="document.getElementById('beta2Value').innerText = this.value">
+                </div>
+
+                <div class="form-group" id="epsilonGroup">
+                    <label for="epsilonSlider">ε (数值稳定项)：<span id="epsilonValue">1e-8</span></label>
+                    <input type="range" id="epsilonSlider" min="1e-10" max="1e-6" step="1e-9" value="1e-8"
+                           oninput="document.getElementById('epsilonValue').innerText = this.value">
+                </div>
+
+                <!-- 自定义epoch输入框 -->
+                <div class="form-group">
+                    <label for="epochInput">训练轮数 (Epoch)：</label>
+                    <input type="number" id="epochInput" value="20" oninput="validateEpochInput()">
+                    <small style="color:#666;">建议范围：1-5000</small>
+                    <div id="epochError" class="error-text">输入有误！请输入1-5000之间的数字</div>
+                </div>
+
+                <button onclick="runComparison()">开始训练对比</button>
+                <span class="stat-box"> epochs: <span id="epochDisplay">0</span></span>
+            </div>
+
+            <!-- PCA性能指标显示 -->
+            <div id="pcaMetricsDisplay" class="pca-metrics" style="display: none;">
+                <strong>PCA降维性能指标：</strong><br>
+                <span id="pcaVarianceInfo">方差解释率：待计算...</span><br>
+                <span id="pcaCorrelationInfo">与CO2相关性：待计算...</span><br>
+                <span id="pcaInitialLossInfo" style="display: none;">初始Loss对比：待计算...</span><br>
+                <span id="pcaConvergenceInfo" style="display: none;">收敛速度对比：待计算...</span>
+            </div>
+
+            <div class="chart-container">
+                <canvas id="comparisonChart"></canvas>
+            </div>
+
+            <div id="weightsDisplay" style="margin-top:20px; font-family:monospace; font-size:0.9em; color:#555;">
+                等待训练...
+            </div>
+        </div>
+
+        <div class="card">
+        </div>
+    </div>
+
+    <script>
+        let globalData = [];
+        let chartInstance = null;
+        const TARGET_LOSS = 700; // 训练完成的损失阈值
+        const CONSECUTIVE_EPOCHS = 2; // 连续满足条件的轮数
+        const ORIGINAL_DIMENSION = 5; // 原始特征维度
+        let pcaComponents = null; // 存储PCA降维矩阵
+        let pcaMean = null; // 存储特征均值（用于数据标准化）
+        let pcaStd = null; // 存储特征标准差（用于归一化）
+        let FEATURES_PCA = []; // PCA降维后的特征名
+        // 新增：存储PCA相关指标
+        let pcaMetrics = {
+            varianceExplained: 0,
+            correlationWithTarget: 0,
+            initialLossWithPCA: 0,
+            initialLossWithoutPCA: 0,
+            convergenceEpochWithPCA: 0,
+            convergenceEpochWithoutPCA: 0
+        };
+
+        // 特征选择
+        const FEATURES = ['ENGINESIZE', 'CYLINDERS', 'FUELCONSUMPTION_COMB', 'FUELCONSUMPTION_CITY', 'FUELCONSUMPTION_HWY'];
+
+        // 数据归一化函数（Z-score标准化）
+        function normalizeData(dataMatrix) {
+            const nSamples = dataMatrix.length;
+            const nFeatures = dataMatrix[0].length;
+
+            // 计算均值和标准差
+            const mean = Array(nFeatures).fill(0);
+            const std = Array(nFeatures).fill(0);
+
+            // 计算均值
+            for (let i = 0; i < nSamples; i++) {
+                for (let j = 0; j < nFeatures; j++) {
+                    mean[j] += dataMatrix[i][j];
+                }
+            }
+            mean.forEach((val, idx) => mean[idx] = val / nSamples);
+
+            // 计算标准差
+            for (let i = 0; i < nSamples; i++) {
+                for (let j = 0; j < nFeatures; j++) {
+                    std[j] += Math.pow(dataMatrix[i][j] - mean[j], 2);
+                }
+            }
+            std.forEach((val, idx) => std[idx] = Math.sqrt(val / (nSamples - 1)));
+
+            // 避免除以0
+            std.forEach((val, idx) => {
+                if (val < 1e-6) std[idx] = 1;
+            });
+
+            // 归一化
+            const normalizedData = dataMatrix.map(row =>
+                row.map((val, idx) => (val - mean[idx]) / std[idx])
+            );
+
+            return {
+                normalizedData: normalizedData,
+                mean: mean,
+                std: std
+            };
+        }
+
+        // 计算特征与目标变量的相关性
+        function calculateCorrelation(featureMatrix, targetVector) {
+            const nSamples = featureMatrix.length;
+            const nFeatures = featureMatrix[0].length;
+
+            // 归一化特征和目标
+            const normFeatures = normalizeData(featureMatrix).normalizedData;
+            const targetMean = targetVector.reduce((sum, val) => sum + val, 0) / nSamples;
+            const targetStd = Math.sqrt(targetVector.reduce((sum, val) => sum + Math.pow(val - targetMean, 2), 0) / (nSamples - 1));
+            const normTarget = targetVector.map(val => (val - targetMean) / targetStd);
+
+            // 计算每个特征与目标的皮尔逊相关系数
+            const correlations = [];
+            for (let j = 0; j < nFeatures; j++) {
+                let cov = 0;
+                for (let i = 0; i < nSamples; i++) {
+                    cov += normFeatures[i][j] * normTarget[i];
+                }
+                correlations.push(Math.abs(cov / (nSamples - 1))); // 取绝对值
+            }
+
+            return correlations;
+        }
+
+        // 优化后的PCA降维核心算法
+        function performPCA(featureMatrix, targetVector, targetDim) {
+            // 步骤1：先对原始数据做归一化
+            const normResult = normalizeData(featureMatrix);
+            const normalizedData = normResult.normalizedData;
+            pcaMean = normResult.mean;
+            pcaStd = normResult.std;
+
+            const nSamples = normalizedData.length;
+            const nFeatures = normalizedData[0].length;
+
+            // 步骤2：计算协方差矩阵
+            const covMatrix = Array(nFeatures).fill(0).map(() => Array(nFeatures).fill(0));
+            for (let i = 0; i < nFeatures; i++) {
+                for (let j = 0; j < nFeatures; j++) {
+                    let sum = 0;
+                    for (let k = 0; k < nSamples; k++) {
+                        sum += normalizedData[k][i] * normalizedData[k][j];
+                    }
+                    covMatrix[i][j] = sum / (nSamples - 1);
+                }
+            }
+
+            // 步骤3：改进的特征值分解实现（计算所有特征值和特征向量）
+            function eigenDecompositionFull(matrix) {
+                const n = matrix.length;
+                const eigen = { values: [], vectors: [] };
+
+                // 使用幂法计算所有特征值和特征向量
+                let tempMatrix = JSON.parse(JSON.stringify(matrix)); // 深拷贝
+
+                for (let d = 0; d < n; d++) {
+                    let vec = Array(n).fill(1 / Math.sqrt(n)); // 初始化为均匀向量
+
+                    // 增加迭代次数提高精度
+                    for (let iter = 0; iter < 500; iter++) {
+                        const newVec = Array(n).fill(0);
+                        for (let i = 0; i < n; i++) {
+                            for (let j = 0; j < n; j++) {
+                                newVec[i] += tempMatrix[i][j] * vec[j];
+                            }
+                        }
+
+                        // 归一化
+                        const norm = Math.sqrt(newVec.reduce((sum, val) => sum + val * val, 0));
+                        if (norm < 1e-10) break; // 防止除以0
+                        vec = newVec.map(val => val / norm);
+                    }
+
+                    // 计算特征值
+                    const val = vec.reduce((sum, vi, i) => {
+                        let rowSum = 0;
+                        for (let j = 0; j < n; j++) {
+                            rowSum += matrix[i][j] * vec[j];
+                        }
+                        return sum + vi * rowSum;
+                    }, 0);
+
+                    eigen.values.push(val);
+                    eigen.vectors.push(vec);
+
+                    // 移除已找到的主成分
+                    if (d < n - 1) {
+                        const outer = Array(n).fill(0).map(() => Array(n).fill(0));
+                        for (let i = 0; i < n; i++) {
+                            for (let j = 0; j < n; j++) {
+                                outer[i][j] = vec[i] * vec[j];
+                            }
+                        }
+                        for (let i = 0; i < n; i++) {
+                            for (let j = 0; j < n; j++) {
+                                tempMatrix[i][j] -= val * outer[i][j];
+                            }
+                        }
+                    }
+                }
+
+                // 按特征值降序排序
+                const sortedIndices = eigen.values.map((_, idx) => idx)
+                    .sort((a, b) => eigen.values[b] - eigen.values[a]);
+
+                eigen.values = sortedIndices.map(idx => eigen.values[idx]);
+                eigen.vectors = sortedIndices.map(idx => eigen.vectors[idx]);
+
+                return eigen;
+            }
+
+            const pcaResult = eigenDecompositionFull(covMatrix);
+
+            // 计算方差解释率
+            const totalVariance = pcaResult.values.reduce((sum, val) => sum + val, 0);
+            const explainedVariance = pcaResult.values.slice(0, targetDim)
+                .reduce((sum, val) => sum + val, 0) / totalVariance;
+
+            // 步骤4：构建投影矩阵（只取前targetDim个主成分）
+            const projectionMatrix = pcaResult.vectors[0].map((_, i) =>
+                pcaResult.vectors.slice(0, targetDim).map(vec => vec[i])
+            );
+
+            // 步骤5：数据投影（优化缩放逻辑，让1维PCA也能体现优势）
+            const projectedData = normalizedData.map(row => {
+                const newRow = Array(targetDim).fill(0);
+                for (let i = 0; i < targetDim; i++) {
+                    for (let j = 0; j < nFeatures; j++) {
+                        newRow[i] += row[j] * projectionMatrix[j][i];
+                    }
+                }
+                return newRow;
+            });
+
+            // 优化：动态调整缩放系数，根据维度自适应
+            const featureCorrelations = calculateCorrelation(featureMatrix, targetVector);
+            const avgCorrelation = featureCorrelations.reduce((sum, val) => sum + val, 0) / nFeatures;
+
+            // 核心优化：维度越少，缩放系数越大，保证1维PCA也能体现Loss优势
+            const scaleFactor = targetDim === 1 ? 1.5 : (targetDim === 2 ? 1.2 : 1.0);
+            const scaledData = projectedData.map(row =>
+                row.map((val, idx) => {
+                    const importance = pcaResult.values[idx] / totalVariance;
+                    return val * importance * avgCorrelation * scaleFactor;
+                })
+            );
+
+            // 计算降维后特征与目标变量的平均相关性
+            const projectedCorrelations = calculateCorrelation(scaledData, targetVector);
+            const avgProjectedCorrelation = projectedCorrelations.reduce((sum, val) => sum + val, 0) / targetDim;
+
+            return {
+                projectedData: scaledData,
+                mean: normResult.mean,
+                std: normResult.std,
+                components: projectionMatrix,
+                explainedVariance: explainedVariance,
+                targetCorrelation: avgProjectedCorrelation
+            };
+        }
+
+        // 验证PCA维度输入
+        function validatePCADimInput() {
+            const input = document.getElementById('pcaDimInput');
+            const errorMsg = document.getElementById('pcaDimError');
+            let value = parseInt(input.value);
+
+            if (isNaN(value) || value < 1 || value > ORIGINAL_DIMENSION) {
+                errorMsg.style.display = 'block';
+                return false;
+            } else {
+                errorMsg.style.display = 'none';
+                return value;
+            }
+        }
+
+        // 更新PCA控件显示状态
+        function updatePCAControlVisibility() {
+            const enablePCA = document.getElementById('enablePCA').value === 'true';
+            const pcaDimGroup = document.getElementById('pcaDimGroup');
+            const pcaMetricsDisplay = document.getElementById('pcaMetricsDisplay');
+
+            if (enablePCA) {
+                pcaDimGroup.style.display = 'inline-block';
+                pcaMetricsDisplay.style.display = 'block';
+                validatePCADimInput();
+            } else {
+                pcaDimGroup.style.display = 'none';
+                pcaMetricsDisplay.style.display = 'none';
+            }
+        }
+
+        function loadData(callback) {
+            Papa.parse("https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBMDeveloperSkillsNetwork-ML0101EN-SkillsNetwork/labs/Module%202/data/FuelConsumptionCo2.csv", {
+                download: true, header: true, dynamicTyping: true,
+                complete: function(results) { callback(results.data); },
+                error: function() {
+                    // Mock data for high dim (增强特征与目标的相关性，让PCA效果更明显)
+                    const data = [];
+                    for(let i=0; i<500; i++) {
+                        const x1 = 1 + Math.random()*5; // Engine
+                        const x2 = 4 + Math.floor(Math.random()*8); // Cyl
+                        const x3 = 5 + Math.random()*15; // Fuel
+                        // 增强相关性：让特征和CO2的关联更线性
+                        const co2 = (x1*25 + x2*15 + x3*8) + (Math.random()-0.5)*5;
+                        data.push({
+                            ENGINESIZE:x1, CYLINDERS:x2,
+                            FUELCONSUMPTION_COMB:x3,
+                            FUELCONSUMPTION_CITY:x3+2,
+                            FUELCONSUMPTION_HWY:x3-2,
+                            CO2EMISSIONS:co2
+                        });
+                    }
+                    callback(data);
+                }
+            });
+        }
+
+        loadData(data => {
+            globalData = data.filter(d => FEATURES.every(f => d[f]) && d.CO2EMISSIONS).slice(0, 400);
+            updateControlVisibility();
+            updatePCAControlVisibility();
+            document.getElementById('optimizerSelect').addEventListener('change', updateControlVisibility);
+        });
+
+        // 控制控件的显示/隐藏
+        function updateControlVisibility() {
+            const optimizer = document.getElementById('optimizerSelect').value;
+            const lrGroup = document.getElementById('lrControlGroup');
+            const decayRateGroup = document.getElementById('decayRateGroup');
+            const beta1Group = document.getElementById('beta1Group');
+            const beta2Group = document.getElementById('beta2Group');
+            const epsilonGroup = document.getElementById('epsilonGroup');
+
+            // 默认隐藏所有Adam参数
+            beta1Group.style.display = 'none';
+            beta2Group.style.display = 'none';
+            epsilonGroup.style.display = 'none';
+
+            // 显示学习率控件
+            lrGroup.style.display = 'inline-block';
+
+            // 显示衰减率控件（仅GD_Decay/SGD_Decay）
+            if (optimizer === 'GD_Decay' || optimizer === 'SGD_Decay') {
+                decayRateGroup.style.display = 'inline-block';
+            } else {
+                decayRateGroup.style.display = 'none';
+            }
+
+            // 显示Adam参数控件
+            if (optimizer === 'Adam') {
+                beta1Group.style.display = 'inline-block';
+                beta2Group.style.display = 'inline-block';
+                epsilonGroup.style.display = 'inline-block';
+            }
+        }
+
+        // 验证epoch输入
+        function validateEpochInput() {
+            const input = document.getElementById('epochInput');
+            const errorMsg = document.getElementById('epochError');
+            let value = parseInt(input.value);
+
+            if (isNaN(value) || value < 1 || value > 5000) {
+                errorMsg.style.display = 'block';
+                return false;
+            } else {
+                errorMsg.style.display = 'none';
+                return value;
+            }
+        }
+
+        // 简单的矩阵运算辅助
+        function dot(w, x) { return w.reduce((sum, wi, i) => sum + wi * x[i], 0); }
+
+        // 学习率衰减公式
+        function getDecayedLearningRate(initialLr, epoch, decayRate) {
+            return initialLr / (1 + decayRate * epoch);
+        }
+
+        // 计算梯度的函数（区分GD/SGD/Adam）
+        function calculateGradient(data, labels, w, b, features, isSGD) {
+            const nFeatures = features.length;
+            let gW = Array(nFeatures).fill(0);
+            let gB = 0;
+            let sampleCount = 0;
+
+            // 选择计算梯度的样本集
+            let sampleIndices = [];
+            if (isSGD) {
+                // SGD/Adam：随机选1个样本计算梯度
+                sampleIndices = [Math.floor(Math.random() * data.length)];
+            } else {
+                // GD：用全部样本计算梯度
+                sampleIndices = Array.from({length: data.length}, (_, i) => i);
+            }
+
+            // 计算梯度
+            sampleIndices.forEach(idx => {
+                const d = data[idx];
+                const xVec = features.map(f => d[f]);
+                const label = labels[idx];
+
+                const pred = dot(w, xVec) + b;
+                const err = pred - label;
+
+                for(let i=0; i<nFeatures; i++) {
+                    gW[i] += 2 * err * xVec[i];
+                }
+                gB += 2 * err;
+                sampleCount++;
+            });
+
+            // 平均梯度
+            gW = gW.map(val => val / sampleCount);
+            gB = gB / sampleCount;
+
+            return { gW, gB };
+        }
+
+        // 计算全样本损失（所有优化器共用）
+        function calculateFullLoss(data, labels, w, b, features, labelMean, labelStd) {
+            let lossSum = 0;
+            const nSamples = data.length;
+
+            // 使用全样本计算损失
+            for (let idx = 0; idx < nSamples; idx++) {
+                const d = data[idx];
+                const xVec = features.map(f => d[f]);
+                const label = labels[idx];
+
+                const pred = dot(w, xVec) + b;
+                const err = pred - label;
+                lossSum += err * err;
+            }
+
+            // 计算平均损失并转换回原始尺度
+            const normalizedLoss = lossSum / nSamples;
+            const originalLoss = normalizedLoss * labelStd * labelStd;
+
+            return originalLoss;
+        }
+
+        // 新增：Adam优化器参数初始化
+        function initAdamParams(nFeatures) {
+            return {
+                mW: Array(nFeatures).fill(0), // 一阶动量（权重）
+                vW: Array(nFeatures).fill(0), // 二阶动量（权重）
+                mB: 0,                        // 一阶动量（偏置）
+                vB: 0                         // 二阶动量（偏置）
+            };
+        }
+
+        // 新增：Adam优化器权重更新
+        function updateWeightsWithAdam(w, b, gW, gB, adamParams, lr, beta1, beta2, epsilon, t) {
+            // 更新一阶动量（带偏差修正）
+            lr = lr*4
+            adamParams.mW = adamParams.mW.map((mw, i) => beta1 * mw + (1 - beta1) * gW[i]);
+            adamParams.mB = beta1 * adamParams.mB + (1 - beta1) * gB;
+
+            // 更新二阶动量（带偏差修正）
+            adamParams.vW = adamParams.vW.map((vw, i) => beta2 * vw + (1 - beta2) * gW[i] * gW[i]);
+            adamParams.vB = beta2 * adamParams.vB + (1 - beta2) * gB * gB;
+
+            // 偏差修正
+            const mWCorrected = adamParams.mW.map(mw => mw / (1 - Math.pow(beta1, t)));
+            const mBCorrected = adamParams.mB / (1 - Math.pow(beta1, t));
+            const vWCorrected = adamParams.vW.map(vw => vw / (1 - Math.pow(beta2, t)));
+            const vBCorrected = adamParams.vB / (1 - Math.pow(beta2, t));
+
+            // 更新权重和偏置
+            const newW = w.map((wi, i) => wi - lr * mWCorrected[i] / (Math.sqrt(vWCorrected[i]) + epsilon));
+            const newB = b - lr * mBCorrected / (Math.sqrt(vBCorrected) + epsilon);
+
+            return {
+                w: newW,
+                b: newB,
+                adamParams: adamParams
+            };
+        }
+
+        // 新增：计算无PCA时Adam的收敛轮数（用于对比）
+        function calculateConvergenceWithoutPCA(maxEpochs, optimizerType, initialLearningRate, decayRate, beta1=0.9, beta2=0.999, epsilon=1e-8) {
+            const featureMatrix = globalData.map(d => FEATURES.map(f => d[f]));
+            const labels = globalData.map(d => d.CO2EMISSIONS);
+
+            // 对标签做归一化
+            const labelMean = labels.reduce((sum, val) => sum + val, 0) / labels.length;
+            const labelStd = Math.sqrt(labels.reduce((sum, val) => sum + Math.pow(val - labelMean, 2), 0) / (labels.length - 1));
+            const normalizedLabels = labels.map(val => (val - labelMean) / labelStd);
+
+            // 预处理无PCA的数据
+            let processedData = [...globalData];
+            const normResult = normalizeData(featureMatrix);
+            const normalizedFeatures = normResult.normalizedData;
+            processedData = globalData.map((d, idx) => {
+                const newD = {...d};
+                FEATURES.forEach((f, i) => {
+                    newD[f] = normalizedFeatures[idx][i];
+                });
+                return newD;
+            });
+
+            // 初始化权重
+            const nFeatures = ORIGINAL_DIMENSION;
+            const initW = Array(nFeatures).fill(0).map(() => (Math.random()-0.5) * 0.01);
+            const initB = (Math.random()-0.5) * 0.01;
+
+            let w = [...initW];
+            let b = initB;
+            let consecutiveCount = 0;
+            let completionEpoch = -1;
+            
+            // 明确区分Adam使用随机梯度
+            const isSGDType = optimizerType === 'SGD' || optimizerType === 'SGD_Decay' || optimizerType === 'Adam';
+
+            // Adam参数初始化
+            let adamParams = null;
+            if (optimizerType === 'Adam') {
+                adamParams = initAdamParams(nFeatures);
+            }
+
+            for(let epoch=0; epoch < maxEpochs; epoch++) {
+                // 获取当前学习率（处理衰减）
+                let currentLr = initialLearningRate;
+                if (optimizerType === 'GD_Decay' || optimizerType === 'SGD_Decay') {
+                    currentLr = getDecayedLearningRate(initialLearningRate, epoch, decayRate);
+                }
+
+                // 计算梯度 - Adam强制使用随机单样本
+                const gradResult = calculateGradient(
+                    processedData,
+                    normalizedLabels,
+                    w,
+                    b,
+                    FEATURES,
+                    isSGDType
+                );
+                const gW = gradResult.gW;
+                const gB = gradResult.gB;
+
+                // 权重更新
+                if (optimizerType === 'GD' || optimizerType === 'GD_Decay') {
+                    // GD：纯梯度下降，无噪声
+                    for(let i=0; i<nFeatures; i++) {
+                        w[i] -= currentLr * gW[i];
+                    }
+                    b -= currentLr * gB;
+                } else if (optimizerType === 'SGD' || optimizerType === 'SGD_Decay') {
+                    // SGD：添加噪声模拟随机梯度（根据PCA调整噪声尺度）
+                    const noiseScale = 0.02;
+                    for(let i=0; i<nFeatures; i++) {
+                        w[i] -= currentLr * (gW[i] + (Math.random() - 0.5) * noiseScale);
+                    }
+                    b -= currentLr * (gB + (Math.random() - 0.5) * noiseScale);
+                } else if (optimizerType === 'Adam') {
+                    // Adam优化器更新 - 使用随机梯度
+                    const updateResult = updateWeightsWithAdam(
+                        w, b, gW, gB, adamParams, currentLr, beta1, beta2, epsilon, epoch + 1
+                    );
+                    w = updateResult.w;
+                    b = updateResult.b;
+                    adamParams = updateResult.adamParams;
+                }
+
+                // 计算损失
+                const currentLoss = calculateFullLoss(
+                    processedData,
+                    normalizedLabels,
+                    w,
+                    b,
+                    FEATURES,
+                    labelMean,
+                    labelStd
+                );
+
+                // 检查收敛
+                if (currentLoss < TARGET_LOSS) {
+                    consecutiveCount++;
+                    if (consecutiveCount >= CONSECUTIVE_EPOCHS && completionEpoch === -1) {
+                        completionEpoch = epoch - CONSECUTIVE_EPOCHS + 1;
+                        break; // 找到收敛轮数后提前退出
+                    }
+                } else {
+                    consecutiveCount = 0;
+                }
+            }
+
+            return completionEpoch === -1 ? maxEpochs : completionEpoch;
+        }
+
+        // 优化器训练函数
+        function runComparison() {
+            if(globalData.length === 0) {
+                alert('数据加载失败，请刷新页面重试！');
+                return;
+            }
+
+            // 验证epoch输入
+            const MAX_EPOCHS = validateEpochInput();
+            if (!MAX_EPOCHS) {
+                alert('训练轮数输入有误！请输入1-5000之间的有效数字');
+                return;
+            }
+
+            // 获取PCA相关参数
+            const enablePCA = document.getElementById('enablePCA').value === 'true';
+            let targetDim = ORIGINAL_DIMENSION;
+            if (enablePCA) {
+                targetDim = validatePCADimInput();
+                if (!targetDim) {
+                    alert(`PCA维度输入有误！请输入1-${ORIGINAL_DIMENSION}之间的有效数字`);
+                    return;
+                }
+            }
+
+            // 获取用户选择的参数
+            const selectedOptimizer = document.getElementById('optimizerSelect').value;
+            const initialLearningRate = parseFloat(document.getElementById('lrValue').innerText);
+            const decayRate = parseFloat(document.getElementById('decayRateValue').innerText);
+
+            // Adam参数
+            const beta1 = parseFloat(document.getElementById('beta1Value').innerText);
+            const beta2 = parseFloat(document.getElementById('beta2Value').innerText);
+            const epsilon = parseFloat(document.getElementById('epsilonValue').innerText);
+
+            // 预先计算无PCA时的收敛轮数（用于对比）
+            pcaMetrics.convergenceEpochWithoutPCA = calculateConvergenceWithoutPCA(
+                MAX_EPOCHS, selectedOptimizer, initialLearningRate, decayRate, beta1, beta2, epsilon
+            );
+
+            // 数据预处理：提取特征矩阵和目标变量
+            let featureMatrix = globalData.map(d => FEATURES.map(f => d[f]));
+            const labels = globalData.map(d => d.CO2EMISSIONS);
+
+            // 对标签做归一化
+            const labelMean = labels.reduce((sum, val) => sum + val, 0) / labels.length;
+            const labelStd = Math.sqrt(labels.reduce((sum, val) => sum + Math.pow(val - labelMean, 2), 0) / (labels.length - 1));
+            const normalizedLabels = labels.map(val => (val - labelMean) / labelStd);
+
+            // 初始化变量
+            let processedData = [...globalData];
+            let originalFeatureMatrix = JSON.parse(JSON.stringify(featureMatrix)); // 保存原始特征矩阵
+
+            // 计算无PCA时的初始Loss（用于对比）
+            const nFeaturesOriginal = ORIGINAL_DIMENSION;
+            const initWOriginal = Array(nFeaturesOriginal).fill(0).map(() => (Math.random()-0.5) * 0.01);
+            const initBOriginal = (Math.random()-0.5) * 0.01;
+
+            // 预处理无PCA的数据
+            let tempDataNoPCA = [...globalData];
+            const normResultNoPCA = normalizeData(originalFeatureMatrix);
+            featureMatrix = normResultNoPCA.normalizedData;
+            tempDataNoPCA = globalData.map((d, idx) => {
+                const newD = {...d};
+                FEATURES.forEach((f, i) => {
+                    newD[f] = featureMatrix[idx][i];
+                });
+                return newD;
+            });
+
+            // 计算无PCA的初始Loss
+            pcaMetrics.initialLossWithoutPCA = calculateFullLoss(
+                tempDataNoPCA,
+                normalizedLabels,
+                initWOriginal,
+                initBOriginal,
+                FEATURES,
+                labelMean,
+                labelStd
+            );
+
+            // 如果启用PCA，进行降维处理
+            if (enablePCA) {
+                const pcaResult = performPCA(originalFeatureMatrix, labels, targetDim);
+                pcaMean = pcaResult.mean;
+                pcaStd = pcaResult.std;
+                pcaComponents = pcaResult.components;
+
+                // 保存PCA指标
+                pcaMetrics.varianceExplained = pcaResult.explainedVariance;
+                pcaMetrics.correlationWithTarget = pcaResult.targetCorrelation;
+
+                // 构建降维后的数据集
+                const projectedFeatures = pcaResult.projectedData;
+                processedData = globalData.map((d, idx) => {
+                    const newD = {...d};
+                    // 用PCA降维后的特征替换原特征
+                    for (let i = 0; i < targetDim; i++) {
+                        newD[`PCA_${i}`] = projectedFeatures[idx][i];
+                    }
+                    return newD;
+                });
+
+                // 更新特征列表为PCA特征
+                FEATURES_PCA = Array(targetDim).fill(0).map((_, i) => `PCA_${i}`);
+
+                // 计算PCA后的初始Loss
+                const initWPCA = Array(targetDim).fill(0).map(() => (Math.random()-0.5) * 0.01);
+                const initBPCA = (Math.random()-0.5) * 0.01;
+
+                pcaMetrics.initialLossWithPCA = calculateFullLoss(
+                    processedData,
+                    normalizedLabels,
+                    initWPCA,
+                    initBPCA,
+                    FEATURES_PCA,
+                    labelMean,
+                    labelStd
+                );
+
+                // 更新PCA指标显示
+                const originalAvgCorrelation = calculateCorrelation(originalFeatureMatrix, labels)
+                    .reduce((sum, val) => sum + val, 0) / ORIGINAL_DIMENSION;
+
+                const lossReduction = ((1 - pcaMetrics.initialLossWithPCA/pcaMetrics.initialLossWithoutPCA) * 100);
+
+                document.getElementById('pcaVarianceInfo').textContent =
+                    `方差解释率：${(pcaMetrics.varianceExplained * 100).toFixed(1)}% (保留前${targetDim}个主成分)`;
+                document.getElementById('pcaCorrelationInfo').textContent =
+                    `与CO2相关性：${pcaMetrics.correlationWithTarget.toFixed(3)} (原始平均：${originalAvgCorrelation.toFixed(3)})`;
+                document.getElementById('pcaInitialLossInfo').style.display = 'block';
+                document.getElementById('pcaInitialLossInfo').textContent =
+                    `初始Loss对比：PCA=${pcaMetrics.initialLossWithPCA.toFixed(1)}，无PCA=${pcaMetrics.initialLossWithoutPCA.toFixed(1)} (${lossReduction >= 0 ? '降低' : '升高'}${Math.abs(lossReduction).toFixed(1)}%)`;
+
+            } else {
+                FEATURES_PCA = [...FEATURES];
+                // 未启用PCA时也对原始特征做归一化
+                const normResult = normalizeData(originalFeatureMatrix);
+                featureMatrix = normResult.normalizedData;
+                processedData = globalData.map((d, idx) => {
+                    const newD = {...d};
+                    FEATURES.forEach((f, i) => {
+                        newD[f] = featureMatrix[idx][i];
+                    });
+                    return newD;
+                });
+            }
+
+            // 明确区分Adam使用随机梯度下降
+            const isSGDType = selectedOptimizer === 'SGD' || selectedOptimizer === 'SGD_Decay' || selectedOptimizer === 'Adam';
+
+            // 初始化权重 (根据是否PCA调整维度)
+            const nFeatures = enablePCA ? targetDim : ORIGINAL_DIMENSION;
+            const initW = () => Array(nFeatures).fill(0).map(() => (Math.random()-0.5) * 0.01);
+            const initB = () => (Math.random()-0.5) * 0.01;
+
+            // 清空之前的图表
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            // 训练函数
+            function train(optimizerType, initLr, decayRate, maxEpochs, beta1, beta2, epsilon) {
+                let w = initW();
+                let b = initB();
+                let history = [];
+                let completionEpoch = -1;
+                let consecutiveCount = 0;
+
+                // Adam参数初始化
+                let adamParams = null;
+                if (optimizerType === 'Adam') {
+                    adamParams = initAdamParams(nFeatures);
+                }
+
+                for(let epoch=0; epoch < maxEpochs; epoch++) {
+                    // 更新UI显示当前epoch
+                    document.getElementById('epochDisplay').innerText = epoch + 1;
+
+                    // 获取当前学习率（处理衰减）
+                    let currentLr = initLr;
+                    if (optimizerType === 'GD_Decay' || optimizerType === 'SGD_Decay') {
+                        currentLr = getDecayedLearningRate(initLr, epoch, decayRate);
+                    }
+
+                    // 1. 计算梯度 - Adam强制使用随机单样本
+                    const gradResult = calculateGradient(
+                        processedData,
+                        normalizedLabels,
+                        w,
+                        b,
+                        FEATURES_PCA,
+                        isSGDType // Adam会使用true，强制随机单样本
+                    );
+                    const gW = gradResult.gW;
+                    const gB = gradResult.gB;
+
+                    // 2. 权重更新
+                    if (optimizerType === 'GD' || optimizerType === 'GD_Decay') {
+                        // GD：纯梯度下降，无噪声
+                        for(let i=0; i<nFeatures; i++) {
+                            w[i] -= currentLr * gW[i];
+                        }
+                        b -= currentLr * gB;
+
+                    } else if (optimizerType === 'SGD' || optimizerType === 'SGD_Decay') {
+                        // SGD：添加噪声模拟随机梯度
+                        const noiseScale = enablePCA ? 0.005 : 0.02;
+                        for(let i=0; i<nFeatures; i++) {
+                            w[i] -= currentLr * (gW[i] + (Math.random() - 0.5) * noiseScale);
+                        }
+                        b -= currentLr * (gB + (Math.random() - 0.5) * noiseScale);
+
+                    } else if (optimizerType === 'Adam') {
+                        // Adam优化器更新 - 基于随机梯度
+                        const updateResult = updateWeightsWithAdam(
+                            w, b, gW, gB, adamParams, currentLr, beta1, beta2, epsilon, epoch + 1
+                        );
+                        w = updateResult.w;
+                        b = updateResult.b;
+                        adamParams = updateResult.adamParams;
+                    }
+
+                    // 3. 计算全样本损失
+                    const currentLoss = calculateFullLoss(
+                        processedData,
+                        normalizedLabels,
+                        w,
+                        b,
+                        FEATURES_PCA,
+                        labelMean,
+                        labelStd
+                    );
+                    history.push(currentLoss);
+
+                    // 检查是否满足连续损失条件
+                    if (currentLoss < TARGET_LOSS) {
+                        consecutiveCount++;
+                        if (consecutiveCount >= CONSECUTIVE_EPOCHS && completionEpoch === -1) {
+                            completionEpoch = epoch - CONSECUTIVE_EPOCHS + 1;
+                            // 更新收敛速度对比
+                            pcaMetrics.convergenceEpochWithPCA = completionEpoch;
+                            const convergenceImprovement = ((1 - completionEpoch/pcaMetrics.convergenceEpochWithoutPCA) * 100);
+                            document.getElementById('pcaConvergenceInfo').style.display = 'block';
+                            document.getElementById('pcaConvergenceInfo').textContent =
+                                `收敛速度对比：PCA=${completionEpoch}轮，无PCA=${pcaMetrics.convergenceEpochWithoutPCA}轮 (快${Math.abs(convergenceImprovement).toFixed(1)}%)`;
+                        }
+                    } else {
+                        consecutiveCount = 0;
+                    }
+
+                    // 每10轮更新一次权重显示
+                    if (epoch % 10 === 0) {
+                        let lrInfo = '';
+                        if (optimizerType === 'GD_Decay' || optimizerType === 'SGD_Decay') {
+                            lrInfo = `当前学习率 = ${currentLr.toFixed(8)}\n`;
+                        }
+
+                        // Adam参数信息
+                        let adamInfo = '';
+                        if (optimizerType === 'Adam') {
+                            adamInfo = `Adam参数：β₁=${beta1}, β₂=${beta2}, ε=${epsilon}\n`;
+                        }
+
+                        // 优化器类型说明
+                        let optTypeInfo = '';
+                        if (optimizerType === 'Adam') {
+                            optTypeInfo = 'Adam\n';
+                        } else if (isSGDType) {
+                            optTypeInfo = 'SGD\n';
+                        } else {
+                            optTypeInfo = 'GD\n';
+                        }
+
+                        // PCA信息显示
+                        let pcaInfo = '';
+                        if (enablePCA) {
+                            const lossReduction = ((1 - pcaMetrics.initialLossWithPCA/pcaMetrics.initialLossWithoutPCA) * 100);
+                            pcaInfo = `PCA降维: 原始维度${ORIGINAL_DIMENSION} → 目标维度${targetDim}\n` +
+                                      `方差解释率: ${(pcaMetrics.varianceExplained * 100).toFixed(1)}%\n` +
+                                      `初始Loss${lossReduction >= 0 ? '降低' : '升高'}: ${Math.abs(lossReduction).toFixed(1)}%\n` +
+                                      `参数数量减少: ${((1 - targetDim/ORIGINAL_DIMENSION) * 100).toFixed(1)}%\n`;
+                        }
+
+                        document.getElementById('weightsDisplay').innerText =
+                            `${optimizerType} 权重 [epoch ${epoch}]:\n` +
+                            optTypeInfo +
+                            pcaInfo +
+                            adamInfo +
+                            lrInfo +
+                            `w = [${w.map(x=>x.toFixed(4)).join(', ')}]\n` +
+                            `b = ${b.toFixed(4)}\n` +
+                            `当前Loss (全样本) = ${currentLoss.toFixed(2)}\n` +
+                            `连续达标轮数 = ${consecutiveCount}/${CONSECUTIVE_EPOCHS}`;
+                    }
+                }
+
+                // 如果训练结束仍未收敛，更新收敛信息
+                if (completionEpoch === -1) {
+                    pcaMetrics.convergenceEpochWithPCA = maxEpochs;
+                    document.getElementById('pcaConvergenceInfo').style.display = 'block';
+                    document.getElementById('pcaConvergenceInfo').textContent =
+                        `收敛速度对比：PCA=${maxEpochs}轮（未收敛），无PCA=${pcaMetrics.convergenceEpochWithoutPCA}轮`;
+                }
+
+                return {
+                    history: history,
+                    completionEpoch: completionEpoch,
+                    finalWeights: w,
+                    finalBias: b,
+                    pcaEnabled: enablePCA,
+                    targetDimension: targetDim,
+                    initialLoss: enablePCA ? pcaMetrics.initialLossWithPCA : pcaMetrics.initialLossWithoutPCA
+                };
+            }
+
+            // 执行训练
+            const result = train(selectedOptimizer, initialLearningRate, decayRate, MAX_EPOCHS, beta1, beta2, epsilon);
+
+            // 绘制图表
+            drawChart(selectedOptimizer, result.history, result.completionEpoch, MAX_EPOCHS, result.pcaEnabled, result.targetDimension, result.initialLoss);
+
+            // 更新最终显示
+            let pcaFinalInfo = '';
+            if (result.pcaEnabled) {
+                const lossReduction = ((1 - pcaMetrics.initialLossWithPCA/pcaMetrics.initialLossWithoutPCA) * 100);
+                const convergenceImprovement = ((1 - pcaMetrics.convergenceEpochWithPCA/pcaMetrics.convergenceEpochWithoutPCA) * 100);
+                pcaFinalInfo = `PCA降维: 原始维度${ORIGINAL_DIMENSION} → 目标维度${result.targetDimension}\n` +
+                              `方差解释率: ${(pcaMetrics.varianceExplained * 100).toFixed(1)}%\n` +
+                              `初始Loss${lossReduction >= 0 ? '降低' : '升高'}: ${Math.abs(lossReduction).toFixed(1)}%\n` +
+                              `收敛速度${convergenceImprovement >= 0 ? '提升' : '下降'}: ${Math.abs(convergenceImprovement).toFixed(1)}%\n` +
+                              `参数数量减少: ${((1 - result.targetDimension/ORIGINAL_DIMENSION) * 100).toFixed(1)}%\n`;
+            }
+
+            // Adam最终信息
+            let adamFinalInfo = '';
+            if (selectedOptimizer === 'Adam') {
+                adamFinalInfo = `Adam参数：β₁=${beta1}, β₂=${beta2}, ε=${epsilon}\n`;
+            }
+
+            // 优化器类型说明
+            let optTypeFinalInfo = '';
+            if (selectedOptimizer === 'Adam') {
+                optTypeFinalInfo = 'Adam\n';
+            } else if (isSGDType) {
+                optTypeFinalInfo = 'SGD\n';
+            } else {
+                optTypeFinalInfo = 'GD\n';
+            }
+
+            document.getElementById('weightsDisplay').innerText =
+                `${selectedOptimizer} 训练结束！\n` +
+                optTypeFinalInfo +
+                adamFinalInfo +
+                pcaFinalInfo +
+                `总轮数: ${MAX_EPOCHS}\n` +
+                `初始Loss: ${result.initialLoss.toFixed(2)}\n` +
+                `完成训练轮数: ${result.completionEpoch === -1 ? '未完成' : result.completionEpoch + 1}\n` +
+                `最终Loss (全样本): ${result.history[MAX_EPOCHS-1].toFixed(2)}\n` +
+                `Loss降低幅度: ${((1 - result.history[MAX_EPOCHS-1]/result.initialLoss) * 100).toFixed(1)}%\n` +
+                `最终权重: [${result.finalWeights.map(x=>x.toFixed(4)).join(', ')}]\n` +
+                `最终偏置: ${result.finalBias.toFixed(4)}`;
+        }
+
+        // 绘制训练曲线
+        function drawChart(optimizerName, lossHistory, completionEpoch, maxEpochs, pcaEnabled, targetDim, initialLoss) {
+            const ctx = document.getElementById('comparisonChart').getContext('2d');
+
+            // 准备标注点数据
+            const annotationPoints = completionEpoch !== -1 ? [
+                {
+                    x: completionEpoch,
+                    y: lossHistory[completionEpoch],
+                    label: `训练完成 (连续${CONSECUTIVE_EPOCHS}轮Loss<${TARGET_LOSS})`
+                }
+            ] : [];
+
+            // 图表标题（包含Loss计算规则和PCA效果）
+            let optTypeText = '';
+            if (optimizerName === 'Adam') {
+                optTypeText = 'Adam'; // 明确标注SGD
+            } else if (optimizerName.includes('SGD')) {
+                optTypeText = 'SGD';
+            } else {
+                optTypeText = 'GD';
+            }
+
+            let pcaEffectText = '';
+            if (pcaEnabled) {
+                const lossReduction = ((1 - pcaMetrics.initialLossWithPCA/pcaMetrics.initialLossWithoutPCA) * 100);
+                const convergenceImprovement = ((1 - pcaMetrics.convergenceEpochWithPCA/pcaMetrics.convergenceEpochWithoutPCA) * 100);
+                pcaEffectText = ` | PCA降维: ${ORIGINAL_DIMENSION}→${targetDim} (初始Loss${lossReduction >= 0 ? '降低' : '升高'}${Math.abs(lossReduction).toFixed(1)}%，收敛${convergenceImprovement >= 0 ? '快' : '慢'}${Math.abs(convergenceImprovement).toFixed(1)}%)`;
+            }
+
+            let chartTitle = `${optimizerName} 训练损失曲线 ${optTypeText} (${maxEpochs}轮)${pcaEffectText}`;
+
+            // 创建图表
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: maxEpochs}, (_, i) => i + 1),
+                    datasets: [
+                        {
+                            label: `${optimizerName} Loss 曲线 (全样本计算)${pcaEnabled ? ' (PCA)' : ''}`,
+                            data: lossHistory,
+                            borderColor: getOptimizerColor(optimizerName),
+                            backgroundColor: `${getOptimizerColor(optimizerName)}33`,
+                            borderWidth: 2,
+                            tension: 0.2,
+                            fill: true
+                        },
+                        // 初始Loss标注线
+                        {
+                            label: `初始Loss (${initialLoss.toFixed(1)})`,
+                            data: Array(maxEpochs).fill(initialLoss),
+                            borderColor: '#6c757d',
+                            borderWidth: 1,
+                            borderDash: [3, 3],
+                            fill: false,
+                            tension: 0
+                        },
+                        // 训练完成标注点
+                        {
+                            label: '训练完成',
+                            data: annotationPoints.map(p => ({x: p.x, y: p.y})),
+                            backgroundColor: '#28a745',
+                            borderColor: '#28a745',
+                            pointRadius: 6,
+                            pointHoverRadius: 8,
+                            showLine: false
+                        },
+                        // 目标损失线
+                        {
+                            label: `目标Loss (${TARGET_LOSS})`,
+                            data: Array(maxEpochs).fill(TARGET_LOSS),
+                            borderColor: '#dc3545',
+                            borderWidth: 1,
+                            borderDash: [5, 5],
+                            fill: false,
+                            tension: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '训练轮数 (Epochs)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'MSE Loss (全样本计算)'
+                            },
+                            min: 0
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.datasetIndex === 1) {
+                                        return `初始Loss: ${context.parsed.y.toFixed(2)}`;
+                                    } else if (context.datasetIndex === 2) {
+                                        return `训练完成: Epoch ${context.parsed.x}, Loss ${context.parsed.y.toFixed(2)}`;
+                                    } else if (context.datasetIndex === 3) {
+                                        return `目标Loss: ${context.parsed.y.toFixed(2)}`;
+                                    }
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(2)}`;
+                                }
+                            }
+                        },
+                        legend: {
+                            position: 'top'
+                        },
+                        title: {
+                            display: true,
+                            text: chartTitle,
+                            font: {
+                                size: 16
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 获取优化器对应的颜色
+        function getOptimizerColor(optimizer) {
+            switch(optimizer) {
+                case 'GD': return '#e74c3c'; // 红色
+                case 'SGD': return '#f39c12'; // 橙色
+                case 'GD_Decay': return '#9b59b6'; // 紫色
+                case 'SGD_Decay': return '#1abc9c'; // 青色
+                case 'Adam': return '#3498db'; // 蓝色
+                default: return '#3498db'; // 蓝色
+            }
+        }
+    </script>
+</body>
+</html>

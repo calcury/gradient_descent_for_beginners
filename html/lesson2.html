@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>P2 一元线性回归的局限</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- 引入Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- 引入PapaParse解析CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <!-- 引入MathJax支持LaTeX公式渲染 -->
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        /* 简单美化样式，保证页面排版清晰 */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+        .card {
+            background: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .controls {
+            margin: 15px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        button {
+            padding: 8px 16px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+        .stat-box {
+            padding: 8px 12px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            color: #2c3e50;
+            font-weight: bold;
+        }
+        .chart-container {
+            height: 400px;
+            width: 100%;
+        }
+        .highlight {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        .nav-links {
+            margin: 20px 0;
+        }
+        .nav-links a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        header a {
+            color: #3498db;
+            text-decoration: none;
+            margin-left: 10px;
+        }
+        header {
+            margin-bottom: 20px;
+        }
+        /* 隐藏板块的样式 */
+        .hidden-section {
+            display: none;
+        }
+        /* 加载中样式 */
+        .loading {
+            color: #3498db;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>P2 高中统计法与现实挑战</h1>
+            <a href="index.html">← 返回导航</a>
+        </header>
+
+        <div class="card">
+            <h2>方法回顾：最小二乘法公式</h2>
+            <p>在高中统计中，我们学过可以直接通过公式计算最佳拟合直线 y = kx + b 的系数：</p>
+            <div style="background:#f5f5f5; padding:15px; border-radius:6px; margin:10px 0;">
+                $$k = \frac{\sum_{i=1}^n(x_i - \bar{x})(y_i - \bar{y})}{\sum_{i=1}^n(x_i - \bar{x})^2}, \quad b = \bar{y} - k\bar{x}$$
+            </div>
+            <p>这种方法对于<strong>单变量（1个特征）</strong>非常有效且快速，计算量仅为 $O(n)$（$n$ 为样本数）。让我们试试它在这个数据集上的表现。</p>
+        </div>
+
+        <div class="card">
+            <h2>实验：训练集拟合+测试集验证</h2>
+            <div class="controls">
+                <button id="experimentBtn" onclick="runExperiment()">使用最小二乘法求解</button>
+                <span id="mseResult" class="stat-box"></span>
+                <!-- 计算中提示，初始隐藏 -->
+                <span id="loadingTip" class="loading" style="display: none;">计算中...请稍候</span>
+            </div>
+
+            <div class="chart-container">
+                <canvas id="regressionChart"></canvas>
+            </div>
+            <p id="conclusion" style="margin-top:15px; font-weight:bold;"></p>
+        </div>
+        <!-- 继续探索按钮，初始隐藏 -->
+        <div id="exploreBtnContainer" style="margin: 15px 0; display: none;">
+            <button onclick="showProblemSection()">继续探索 → 最小二乘的局限性</button>
+        </div>
+
+        <!-- 发现问题板块，初始隐藏 -->
+        <div id="problemSection" class="card hidden-section">
+            <h2>发现问题：最小二乘法的真实局限性</h2>
+            <p>虽然单变量最小二乘拟合看起来不错，但现实中汽车排放不仅仅取决于油耗，还取决于<strong>发动机排量、气缸数、燃料类型、车重</strong>等多个特征。当特征数增加时，最小二乘法的核心问题会集中暴露：</p>
+            <p class="highlight">核心瓶颈：</p>
+            <ul style="line-height: 1.8; margin-left: 20px;">
+                <li><strong>公式复杂度爆炸</strong>：单变量仅需2个公式，2个特征需解3元方程组，10个特征需解11元方程组，手动推导和计算完全不可行；</li>
+                <li><strong>计算复杂度指数级上升</strong>：多维最小二乘的核心是求解闭式解 $$w = (X^TX)^{-1}X^Ty$$其中 X 是 n×d 的特征矩阵（d 为特征数）：
+                    <ul>
+                        <li>d=10 时，矩阵求逆复杂度为 O(d^3)=1000 次运算，仍可接受；</li>
+                        <li>d=100 时，求逆复杂度达 10^6 次运算，计算耗时开始显著增加；</li>
+                        <li>d=1000 时，求逆复杂度飙升至 10^9 次运算，普通计算机需数秒甚至数分钟，且易出现内存溢出；</li>
+                    </ul>
+                </li>
+                <li><strong>数值稳定性极差</strong>：高维下 X^TX 极易出现“多重共线性”（特征间高度相关），导致矩阵接近奇异、无法求逆，即使通过伪逆求解，结果也会严重偏离真实最优解；</li>
+                <li><strong>无法在线学习</strong>：新增样本时，最小二乘需重新计算整个矩阵的逆，而迭代法（如梯度下降）仅需小幅更新参数。</li>
+            </ul>
+            <p style="margin-top:10px;">这就是梯度下降的核心动机：<strong>用“迭代逼近”替代“一次性精确求解”</strong>，以线性复杂度 O(nd) 处理高维问题，兼顾效率和数值稳定性。</p>
+        </div>
+
+        <!-- 下一步导航链接，初始隐藏 -->
+        <div id="nextLessonLink" class="nav-links hidden-section">
+            <a href="lesson3.html">下一步：引入损失函数曲面 →</a>
+        </div>
+    </div>
+
+    <script>
+        let globalData = [];
+
+        function loadData(callback) {
+            Papa.parse("https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBMDeveloperSkillsNetwork-ML0101EN-SkillsNetwork/labs/Module%202/data/FuelConsumptionCo2.csv", {
+                download: true, header: true, dynamicTyping: true,
+                complete: function(results) { callback(results.data); },
+                error: function() {
+                    // Fallback mock data - 保证无CSV文件时也能运行
+                    const data = [];
+                    for(let i=0; i<200; i++) {
+                        const fuel = 5 + Math.random() * 20;
+                        const co2 = fuel * 2.3 + 10 + (Math.random() - 0.5) * 10;
+                        data.push({ FUELCONSUMPTION_COMB: fuel, CO2EMISSIONS: co2 });
+                    }
+                    callback(data);
+                }
+            });
+        }
+
+        // 页面加载时加载数据
+        loadData(data => {
+            globalData = data.filter(d => d.FUELCONSUMPTION_COMB && d.CO2EMISSIONS).slice(0, 300);
+        });
+
+        function runExperiment() {
+            // 获取元素
+            const experimentBtn = document.getElementById('experimentBtn');
+            const loadingTip = document.getElementById('loadingTip');
+            const mseResult = document.getElementById('mseResult');
+            const exploreBtnContainer = document.getElementById('exploreBtnContainer');
+
+            // 禁用按钮，显示计算中提示，清空旧结果
+            experimentBtn.disabled = true;
+            loadingTip.style.display = 'inline';
+            mseResult.innerText = '';
+            document.getElementById('conclusion').innerText = '';
+            exploreBtnContainer.style.display = 'none'; // 隐藏继续探索按钮
+
+            if(globalData.length === 0) {
+                alert("数据加载失败，请检查CSV文件路径或等待模拟数据加载！");
+                experimentBtn.disabled = false;
+                loadingTip.style.display = 'none';
+                return;
+            }
+
+            // 模拟3秒复杂运算（异步执行）
+            setTimeout(() => {
+                // 1. 随机打乱并拆分 (80% 训练，20% 测试)
+                const shuffled = [...globalData].sort(() => 0.5 - Math.random());
+                const splitIndex = Math.floor(shuffled.length * 0.8);
+                const trainSet = shuffled.slice(0, splitIndex);
+                const testSet = shuffled.slice(splitIndex);
+
+                // 2. 使用高中公式计算 k 和 b (仅使用训练集)
+                const n = trainSet.length;
+                let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+
+                trainSet.forEach(d => {
+                    const x = d.FUELCONSUMPTION_COMB;
+                    const y = d.CO2EMISSIONS;
+                    sumX += x;
+                    sumY += y;
+                    sumXY += x*y;
+                    sumXX += x*x;
+                });
+
+                const meanX = sumX / n;
+                const meanY = sumY / n;
+
+                // 处理分母为0的极端情况
+                const denominator = sumXX - n * meanX * meanX;
+                const k = denominator === 0 ? 0 : (sumXY - n * meanX * meanY) / denominator;
+                const b = meanY - k * meanX;
+
+                // 3. 在测试集上评估MSE（均方误差）
+                let mse = 0;
+                testSet.forEach(d => {
+                    const pred = k * d.FUELCONSUMPTION_COMB + b;
+                    mse += Math.pow(pred - d.CO2EMISSIONS, 2);
+                });
+                mse /= testSet.length;
+
+                // 4. 绘制图表
+                const ctx = document.getElementById('regressionChart').getContext('2d');
+
+                // 准备图表数据
+                const trainPoints = trainSet.map(d => ({x: d.FUELCONSUMPTION_COMB, y: d.CO2EMISSIONS}));
+                const testPoints = testSet.map(d => ({x: d.FUELCONSUMPTION_COMB, y: d.CO2EMISSIONS}));
+
+                // 生成回归线数据（覆盖整个x轴范围）
+                const allX = [...trainSet, ...testSet].map(d => d.FUELCONSUMPTION_COMB);
+                const minX = Math.min(...allX);
+                const maxX = Math.max(...allX);
+                const lineData = [
+                    {x: minX, y: k*minX + b},
+                    {x: maxX, y: k*maxX + b}
+                ];
+
+                // 销毁旧图表避免重叠
+                if(window.myChart) window.myChart.destroy();
+
+                // 创建新图表
+                window.myChart = new Chart(ctx, {
+                    type: 'scatter',
+                    data: {
+                        datasets: [
+                            {
+                                label: '训练集',
+                                data: trainPoints,
+                                backgroundColor: '#3498db',
+                                pointRadius: 4
+                            },
+                            {
+                                label: '测试集',
+                                data: testPoints,
+                                backgroundColor: '#e74c3c',
+                                pointRadius: 4
+                            },
+                            {
+                                type: 'line',
+                                label: `拟合直线 (y=${k.toFixed(2)}x+${b.toFixed(2)})`,
+                                data: lineData,
+                                borderColor: '#2c3e50',
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                tension: 0 // 直线无曲率
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                title: { display: true, text: '综合油耗 (L/100km)', font: { size: 14 } },
+                                grid: { display: true, color: '#f0f0f0' }
+                            },
+                            y: {
+                                title: { display: true, text: 'CO2排放量 (g/km)', font: { size: 14 } },
+                                grid: { display: true, color: '#f0f0f0' }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: { font: { size: 12 } }
+                            }
+                        }
+                    }
+                });
+
+                // 更新结果和结论
+                mseResult.innerText = `测试集 MSE: ${mse.toFixed(2)}`;
+                document.getElementById('conclusion').innerText = `结论：单变量最小二乘模型在测试集上的均方误差为 ${mse.toFixed(2)}。这个误差源于模型仅使用了“油耗”一个特征，而真实的CO2排放由多特征共同决定。`;
+
+                // 恢复按钮状态，隐藏加载提示，显示继续探索按钮
+                experimentBtn.disabled = false;
+                loadingTip.style.display = 'none';
+                exploreBtnContainer.style.display = 'block';
+            }, 3000); // 3秒延迟模拟复杂计算
+        }
+
+        // 显示发现问题板块和下一步导航的函数
+        function showProblemSection() {
+            const exploreBtnContainer = document.getElementById('exploreBtnContainer');
+            const problemSection = document.getElementById('problemSection');
+            const nextLessonLink = document.getElementById('nextLessonLink');
+
+            // 隐藏继续探索按钮
+            exploreBtnContainer.style.display = 'none';
+            // 显示问题板块
+            problemSection.style.display = 'block';
+            // 显示下一步导航链接
+            nextLessonLink.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

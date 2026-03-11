@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>P1 Problem Background</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>P1 Environmental Challenges and Data Exploration</h1>
+            <a href="index_en.html">← Back to Navigation</a>
+        </header>
+
+        <div class="card">
+            <h2>Problem Background</h2>
+            <p>Carbon dioxide (CO2) emissions are one of the main causes of global warming. Automobiles are significant sources of emissions. If we can accurately <strong>predict a vehicle's CO2 emissions</strong> based on its attributes (such as engine size, fuel consumption, etc.), we can help governments formulate policies and assist consumers in choosing environmentally friendly vehicle models.</p>
+            <p><strong>Objective</strong>: Build a model that takes vehicle characteristics as input and outputs predicted CO2 values.</p>
+        </div>
+
+        <div class="card">
+            <h2>Initial Data Exploration</h2>
+            <p>We used the public dataset <code>FuelConsumptionCo2.csv</code> from the Government of Canada. It mainly includes the following fields:</p>
+            <ul>
+                <li><strong>ENGINESIZE</strong>: Engine displacement (L)</li>
+                <li><strong>CYLINDERS</strong>: Number of cylinders</li>
+                <li><strong>FUELCONSUMPTION_COMB</strong>: Combined fuel consumption (L/100km) - <span class="highlight">Key feature</span></li>
+                <li><strong>CO2EMISSIONS</strong>: CO2 emissions (g/km) - <span class="highlight">Target we aim to predict</span></li>
+            </ul>
+
+            <div id="loading">Loading data...</div>
+            <div class="chart-container">
+                <canvas id="scatterChart"></canvas>
+            </div>
+            <p style="text-align: center; margin-top: 10px; font-size: 0.9em; color: #666;">
+                The chart above shows the relationship between "Combined Fuel Consumption" and "CO2 Emissions". A clear positive correlation can be observed.
+            </p>
+        </div>
+
+        <div class="nav-links">
+            <a href="lesson2_en.html">Next: Attempt to build a model using high school knowledge →</a>
+        </div>
+    </div>
+
+    <script>
+        // Mock data generator (prevents CSV loading failure)
+        function generateMockData() {
+            const data = [];
+            for(let i=0; i<200; i++) {
+                const fuel = 5 + Math.random() * 20;
+                const co2 = fuel * 2.3 + 10 + (Math.random() - 0.5) * 10;
+                data.push({ FUELCONSUMPTION_COMB: fuel, CO2EMISSIONS: co2 });
+            }
+            return data;
+        }
+
+        let globalData = [];
+
+        // Try to load CSV, use mock data if failed
+        Papa.parse("https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBMDeveloperSkillsNetwork-ML0101EN-SkillsNetwork/labs/Module%202/data/FuelConsumptionCo2.csv", {
+            download: true,
+            header: true,
+            dynamicTyping: true,
+            complete: function(results) {
+                processData(results.data);
+            },
+            error: function(err) {
+                console.warn("CSV loading failed, using mock data for demonstration", err);
+                document.getElementById('loading').innerText = "Local CSV file not detected, switched to mock data mode";
+                processData(generateMockData());
+            }
+        });
+
+        function processData(data) {
+            // Filter empty data and extract key fields
+            globalData = data.filter(d => d.FUELCONSUMPTION_COMB && d.CO2EMISSIONS).slice(0, 300); // Take first 300 to avoid excessive data
+
+            const ctx = document.getElementById('scatterChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        label: 'Fuel Consumption vs CO2 Emissions',
+                        data: globalData.map(d => ({x: d.FUELCONSUMPTION_COMB, y: d.CO2EMISSIONS})),
+                        backgroundColor: '#3498db'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { title: { display: true, text: 'Combined Fuel Consumption (L/100km)' } },
+                        y: { title: { display: true, text: 'CO2 Emissions (g/km)' } }
+                    }
+                }
+            });
+            document.getElementById('loading').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

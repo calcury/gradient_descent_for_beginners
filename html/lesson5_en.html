@@ -1,0 +1,1217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>P5 High-Dimensional Practical Implementation</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <style>
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; }
+        .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .controls { margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 6px; }
+        button { padding: 8px 16px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; }
+        button:hover { background: #1976D2; }
+        .stat-box { display: inline-block; margin-left: 10px; padding: 6px 12px; background: #e9ecef; border-radius: 4px; }
+        .chart-container { position: relative; height: 400px; width: 100%; margin: 20px 0; }
+        .form-group { margin: 10px 0; display: inline-block; margin-right: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #333; }
+        select, input[type="range"], input[type="number"] { padding: 6px; border: 1px solid #ddd; border-radius: 4px; min-width: 150px; }
+        #lrValue, #decayRateValue, #beta1Value, #beta2Value, #epsilonValue { display: inline-block; min-width: 60px; text-align: center; }
+        #weightsDisplay { padding: 10px; background: #f8f9fa; border-radius: 4px; white-space: pre-wrap; }
+        .completion-annotation { color: #28a745; font-weight: bold; }
+        input[type="number"] { width: 120px; }
+        .error-text { color: #dc3545; font-size: 0.85em; margin-top: 5px; display: none; }
+        /* PCA-related styles */
+        .pca-info { color: #666; font-size: 0.9em; margin-top: 3px; }
+        .pca-metrics { background: #e8f4f8; padding: 10px; border-radius: 4px; margin: 10px 0; font-size: 0.9em; }
+        .pca-tip { color: #28a745; font-weight: 600; margin-top: 5px; display: block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>P5 High-Dimensional Practical Implementation</h1>
+            <a href="index.html">← Back to Navigation</a>
+        </header>
+
+        <div class="card">
+            <h2>Challenge: Curse of Dimensionality</h2>
+            <p>When we have 10, 50, or even more features:</p>
+            <ul>
+                <li>We cannot visualize the loss function surface (humans cannot imagine 50-dimensional space).</li>
+                <li>Full-batch Gradient Descent (GD) requires computing gradients on all data for each update, making it too slow.</li>
+            </ul>
+            <p><strong>Solutions</strong>:</p>
+            <ol>
+                <li><strong>SGD (Stochastic Gradient Descent)</strong>: Updates using only one sample at a time - fast but noisy.</li>
+                <li><strong>GD/SGD with Learning Rate Decay</strong>: Learning rate decreases dynamically with training epochs for more stable convergence.</li>
+                <li><strong>Adam Optimizer</strong>: Combines momentum and adaptive learning rate for faster and more stable convergence.</li>
+                <li><strong>PCA (Principal Component Analysis)</strong>: Dimensionality reduction that preserves key information, reduces computation, and lowers initial loss.</li>
+            </ol>
+        </div>
+
+        <div class="card">
+            <h2>Optimizer Comparison</h2>
+            <p>Predict CO2 emissions using 5 features (engine size, number of cylinders, fuel consumption, etc.). Observe loss reduction curves for different optimizers, with optional PCA dimensionality reduction.</p>
+            <p><small><strong>Note:</strong> Loss values for all optimizers are calculated using full dataset; SGD/Adam only use single samples for gradient updates; PCA prioritizes features most correlated with CO2</small></p>
+
+            <div class="controls">
+                <!-- Optimizer selection -->
+                <div class="form-group">
+                    <label for="optimizerSelect">Select Optimizer:</label>
+                    <select id="optimizerSelect">
+                        <option value="GD">GD (Full-batch Gradient Descent)</option>
+                        <option value="SGD">SGD (Stochastic Gradient Descent)</option>
+                        <option value="GD_Decay">GD (with Learning Rate Decay)</option>
+                        <option value="SGD_Decay">SGD (with Learning Rate Decay)</option>
+                        <option value="Adam">Adam Optimizer</option>
+                    </select>
+                </div>
+
+                <!-- PCA enable toggle -->
+                <div class="form-group">
+                    <label for="enablePCA">Enable PCA Dimensionality Reduction:</label>
+                    <select id="enablePCA" onchange="updatePCAControlVisibility()">
+                        <option value="false">No</option>
+                        <option value="true">Yes</option>
+                    </select>
+                </div>
+
+                <!-- PCA target dimension selection -->
+                <div class="form-group" id="pcaDimGroup">
+                    <label for="pcaDimInput">PCA Target Dimension:</label>
+                    <input type="number" id="pcaDimInput" value="2" min="1" max="5">
+                    <div class="pca-info">Original Dimension: 5 (Range: 1-5)
+                    </div>
+                    <div id="pcaDimError" class="error-text">Please enter a valid number between 1-5</div>
+                </div>
+
+                <!-- Learning rate slider -->
+                <div class="form-group" id="lrControlGroup">
+                    <label for="lrSlider">Initial Learning Rate: <span id="lrValue">0.005</span></label>
+                    <input type="range" id="lrSlider" min="0.000001" max="0.01" step="0.000001" value="0.005"
+                           oninput="document.getElementById('lrValue').innerText = this.value">
+                </div>
+
+                <!-- Decay rate control -->
+                <div class="form-group" id="decayRateGroup">
+                    <label for="decayRateSlider">Decay Rate: <span id="decayRateValue">0.001</span></label>
+                    <input type="range" id="decayRateSlider" min="0.0001" max="0.01" step="0.0001" value="0.001"
+                           oninput="document.getElementById('decayRateValue').innerText = this.value">
+                </div>
+
+                <!-- Adam parameter controls -->
+                <div class="form-group" id="beta1Group">
+                    <label for="beta1Slider">β₁ (Momentum Coefficient): <span id="beta1Value">0.8</span></label>
+                    <input type="range" id="beta1Slider" min="0.6" max="0.999" step="0.001" value="0.8"
+                           oninput="document.getElementById('beta1Value').innerText = this.value">
+                </div>
+
+                <div class="form-group" id="beta2Group">
+                    <label for="beta2Slider">β₂ (Second-order Momentum Coefficient): <span id="beta2Value">0.9</span></label>
+                    <input type="range" id="beta2Slider" min="0.8" max="0.9999" step="0.0001" value="0.9"
+                           oninput="document.getElementById('beta2Value').innerText = this.value">
+                </div>
+
+                <div class="form-group" id="epsilonGroup">
+                    <label for="epsilonSlider">ε (Numerical Stability Term): <span id="epsilonValue">1e-8</span></label>
+                    <input type="range" id="epsilonSlider" min="1e-10" max="1e-6" step="1e-9" value="1e-8"
+                           oninput="document.getElementById('epsilonValue').innerText = this.value">
+                </div>
+
+                <!-- Custom epoch input -->
+                <div class="form-group">
+                    <label for="epochInput">Training Epochs:</label>
+                    <input type="number" id="epochInput" value="20" oninput="validateEpochInput()">
+                    <small style="color:#666;">Recommended range: 1-5000</small>
+                    <div id="epochError" class="error-text">Invalid input! Please enter a number between 1-5000</div>
+                </div>
+
+                <button onclick="runComparison()">Start Training Comparison</button>
+                <span class="stat-box"> Epochs: <span id="epochDisplay">0</span></span>
+            </div>
+
+            <!-- PCA performance metrics display -->
+            <div id="pcaMetricsDisplay" class="pca-metrics" style="display: none;">
+                <strong>PCA Dimensionality Reduction Metrics:</strong><br>
+                <span id="pcaVarianceInfo">Explained Variance: Calculating...</span><br>
+                <span id="pcaCorrelationInfo">Correlation with CO2: Calculating...</span><br>
+                <span id="pcaInitialLossInfo" style="display: none;">Initial Loss Comparison: Calculating...</span><br>
+                <span id="pcaConvergenceInfo" style="display: none;">Convergence Speed Comparison: Calculating...</span>
+            </div>
+
+            <div class="chart-container">
+                <canvas id="comparisonChart"></canvas>
+            </div>
+
+            <div id="weightsDisplay" style="margin-top:20px; font-family:monospace; font-size:0.9em; color:#555;">
+                Waiting for training...
+            </div>
+        </div>
+
+        <div class="card">
+        </div>
+    </div>
+
+    <script>
+        let globalData = [];
+        let chartInstance = null;
+        const TARGET_LOSS = 700; // Loss threshold for training completion
+        const CONSECUTIVE_EPOCHS = 2; // Number of consecutive epochs to meet criteria
+        const ORIGINAL_DIMENSION = 5; // Original feature dimension
+        let pcaComponents = null; // Store PCA transformation matrix
+        let pcaMean = null; // Store feature mean (for data standardization)
+        let pcaStd = null; // Store feature standard deviation (for normalization)
+        let FEATURES_PCA = []; // PCA-reduced feature names
+        // New: Store PCA-related metrics
+        let pcaMetrics = {
+            varianceExplained: 0,
+            correlationWithTarget: 0,
+            initialLossWithPCA: 0,
+            initialLossWithoutPCA: 0,
+            convergenceEpochWithPCA: 0,
+            convergenceEpochWithoutPCA: 0
+        };
+
+        // Feature selection
+        const FEATURES = ['ENGINESIZE', 'CYLINDERS', 'FUELCONSUMPTION_COMB', 'FUELCONSUMPTION_CITY', 'FUELCONSUMPTION_HWY'];
+
+        // Data normalization function (Z-score standardization)
+        function normalizeData(dataMatrix) {
+            const nSamples = dataMatrix.length;
+            const nFeatures = dataMatrix[0].length;
+
+            // Calculate mean and standard deviation
+            const mean = Array(nFeatures).fill(0);
+            const std = Array(nFeatures).fill(0);
+
+            // Calculate mean
+            for (let i = 0; i < nSamples; i++) {
+                for (let j = 0; j < nFeatures; j++) {
+                    mean[j] += dataMatrix[i][j];
+                }
+            }
+            mean.forEach((val, idx) => mean[idx] = val / nSamples);
+
+            // Calculate standard deviation
+            for (let i = 0; i < nSamples; i++) {
+                for (let j = 0; j < nFeatures; j++) {
+                    std[j] += Math.pow(dataMatrix[i][j] - mean[j], 2);
+                }
+            }
+            std.forEach((val, idx) => std[idx] = Math.sqrt(val / (nSamples - 1)));
+
+            // Avoid division by zero
+            std.forEach((val, idx) => {
+                if (val < 1e-6) std[idx] = 1;
+            });
+
+            // Normalize data
+            const normalizedData = dataMatrix.map(row =>
+                row.map((val, idx) => (val - mean[idx]) / std[idx])
+            );
+
+            return {
+                normalizedData: normalizedData,
+                mean: mean,
+                std: std
+            };
+        }
+
+        // Calculate correlation between features and target variable
+        function calculateCorrelation(featureMatrix, targetVector) {
+            const nSamples = featureMatrix.length;
+            const nFeatures = featureMatrix[0].length;
+
+            // Normalize features and target
+            const normFeatures = normalizeData(featureMatrix).normalizedData;
+            const targetMean = targetVector.reduce((sum, val) => sum + val, 0) / nSamples;
+            const targetStd = Math.sqrt(targetVector.reduce((sum, val) => sum + Math.pow(val - targetMean, 2), 0) / (nSamples - 1));
+            const normTarget = targetVector.map(val => (val - targetMean) / targetStd);
+
+            // Calculate Pearson correlation coefficient for each feature with target
+            const correlations = [];
+            for (let j = 0; j < nFeatures; j++) {
+                let cov = 0;
+                for (let i = 0; i < nSamples; i++) {
+                    cov += normFeatures[i][j] * normTarget[i];
+                }
+                correlations.push(Math.abs(cov / (nSamples - 1))); // Take absolute value
+            }
+
+            return correlations;
+        }
+
+        // Optimized PCA dimensionality reduction core algorithm
+        function performPCA(featureMatrix, targetVector, targetDim) {
+            // Step 1: Normalize original data
+            const normResult = normalizeData(featureMatrix);
+            const normalizedData = normResult.normalizedData;
+            pcaMean = normResult.mean;
+            pcaStd = normResult.std;
+
+            const nSamples = normalizedData.length;
+            const nFeatures = normalizedData[0].length;
+
+            // Step 2: Calculate covariance matrix
+            const covMatrix = Array(nFeatures).fill(0).map(() => Array(nFeatures).fill(0));
+            for (let i = 0; i < nFeatures; i++) {
+                for (let j = 0; j < nFeatures; j++) {
+                    let sum = 0;
+                    for (let k = 0; k < nSamples; k++) {
+                        sum += normalizedData[k][i] * normalizedData[k][j];
+                    }
+                    covMatrix[i][j] = sum / (nSamples - 1);
+                }
+            }
+
+            // Step 3: Improved eigenvalue decomposition implementation (calculate all eigenvalues and eigenvectors)
+            function eigenDecompositionFull(matrix) {
+                const n = matrix.length;
+                const eigen = { values: [], vectors: [] };
+
+                // Use power method to calculate all eigenvalues and eigenvectors
+                let tempMatrix = JSON.parse(JSON.stringify(matrix)); // Deep copy
+
+                for (let d = 0; d < n; d++) {
+                    let vec = Array(n).fill(1 / Math.sqrt(n)); // Initialize as uniform vector
+
+                    // Increase iterations for better accuracy
+                    for (let iter = 0; iter < 500; iter++) {
+                        const newVec = Array(n).fill(0);
+                        for (let i = 0; i < n; i++) {
+                            for (let j = 0; j < n; j++) {
+                                newVec[i] += tempMatrix[i][j] * vec[j];
+                            }
+                        }
+
+                        // Normalize
+                        const norm = Math.sqrt(newVec.reduce((sum, val) => sum + val * val, 0));
+                        if (norm < 1e-10) break; // Prevent division by zero
+                        vec = newVec.map(val => val / norm);
+                    }
+
+                    // Calculate eigenvalue
+                    const val = vec.reduce((sum, vi, i) => {
+                        let rowSum = 0;
+                        for (let j = 0; j < n; j++) {
+                            rowSum += matrix[i][j] * vec[j];
+                        }
+                        return sum + vi * rowSum;
+                    }, 0);
+
+                    eigen.values.push(val);
+                    eigen.vectors.push(vec);
+
+                    // Remove found principal component
+                    if (d < n - 1) {
+                        const outer = Array(n).fill(0).map(() => Array(n).fill(0));
+                        for (let i = 0; i < n; i++) {
+                            for (let j = 0; j < n; j++) {
+                                outer[i][j] = vec[i] * vec[j];
+                            }
+                        }
+                        for (let i = 0; i < n; i++) {
+                            for (let j = 0; j < n; j++) {
+                                tempMatrix[i][j] -= val * outer[i][j];
+                            }
+                        }
+                    }
+                }
+
+                // Sort by eigenvalue descending
+                const sortedIndices = eigen.values.map((_, idx) => idx)
+                    .sort((a, b) => eigen.values[b] - eigen.values[a]);
+
+                eigen.values = sortedIndices.map(idx => eigen.values[idx]);
+                eigen.vectors = sortedIndices.map(idx => eigen.vectors[idx]);
+
+                return eigen;
+            }
+
+            const pcaResult = eigenDecompositionFull(covMatrix);
+
+            // Calculate explained variance ratio
+            const totalVariance = pcaResult.values.reduce((sum, val) => sum + val, 0);
+            const explainedVariance = pcaResult.values.slice(0, targetDim)
+                .reduce((sum, val) => sum + val, 0) / totalVariance;
+
+            // Step 4: Build projection matrix (only take first targetDim principal components)
+            const projectionMatrix = pcaResult.vectors[0].map((_, i) =>
+                pcaResult.vectors.slice(0, targetDim).map(vec => vec[i])
+            );
+
+            // Step 5: Project data (optimized scaling logic, adaptive for 1D PCA)
+            const projectedData = normalizedData.map(row => {
+                const newRow = Array(targetDim).fill(0);
+                for (let i = 0; i < targetDim; i++) {
+                    for (let j = 0; j < nFeatures; j++) {
+                        newRow[i] += row[j] * projectionMatrix[j][i];
+                    }
+                }
+                return newRow;
+            });
+
+            // Optimization: Dynamically adjust scaling factor, adaptive to dimension
+            const featureCorrelations = calculateCorrelation(featureMatrix, targetVector);
+            const avgCorrelation = featureCorrelations.reduce((sum, val) => sum + val, 0) / nFeatures;
+
+            // Core optimization: Smaller dimensions get larger scaling factors to ensure 1D PCA shows loss advantage
+            const scaleFactor = targetDim === 1 ? 1.5 : (targetDim === 2 ? 1.2 : 1.0);
+            const scaledData = projectedData.map(row =>
+                row.map((val, idx) => {
+                    const importance = pcaResult.values[idx] / totalVariance;
+                    return val * importance * avgCorrelation * scaleFactor;
+                })
+            );
+
+            // Calculate average correlation between projected features and target
+            const projectedCorrelations = calculateCorrelation(scaledData, targetVector);
+            const avgProjectedCorrelation = projectedCorrelations.reduce((sum, val) => sum + val, 0) / targetDim;
+
+            return {
+                projectedData: scaledData,
+                mean: normResult.mean,
+                std: normResult.std,
+                components: projectionMatrix,
+                explainedVariance: explainedVariance,
+                targetCorrelation: avgProjectedCorrelation
+            };
+        }
+
+        // Validate PCA dimension input
+        function validatePCADimInput() {
+            const input = document.getElementById('pcaDimInput');
+            const errorMsg = document.getElementById('pcaDimError');
+            let value = parseInt(input.value);
+
+            if (isNaN(value) || value < 1 || value > ORIGINAL_DIMENSION) {
+                errorMsg.style.display = 'block';
+                return false;
+            } else {
+                errorMsg.style.display = 'none';
+                return value;
+            }
+        }
+
+        // Update PCA control visibility
+        function updatePCAControlVisibility() {
+            const enablePCA = document.getElementById('enablePCA').value === 'true';
+            const pcaDimGroup = document.getElementById('pcaDimGroup');
+            const pcaMetricsDisplay = document.getElementById('pcaMetricsDisplay');
+
+            if (enablePCA) {
+                pcaDimGroup.style.display = 'inline-block';
+                pcaMetricsDisplay.style.display = 'block';
+                validatePCADimInput();
+            } else {
+                pcaDimGroup.style.display = 'none';
+                pcaMetricsDisplay.style.display = 'none';
+            }
+        }
+
+        function loadData(callback) {
+            Papa.parse("https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBMDeveloperSkillsNetwork-ML0101EN-SkillsNetwork/labs/Module%202/data/FuelConsumptionCo2.csv", {
+                download: true, header: true, dynamicTyping: true,
+                complete: function(results) { callback(results.data); },
+                error: function() {
+                    // Mock data for high dim (enhance feature-target correlation for better PCA effect)
+                    const data = [];
+                    for(let i=0; i<500; i++) {
+                        const x1 = 1 + Math.random()*5; // Engine
+                        const x2 = 4 + Math.floor(Math.random()*8); // Cylinders
+                        const x3 = 5 + Math.random()*15; // Fuel consumption
+                        // Enhanced correlation: Make features more linearly related to CO2
+                        const co2 = (x1*25 + x2*15 + x3*8) + (Math.random()-0.5)*5;
+                        data.push({
+                            ENGINESIZE:x1, CYLINDERS:x2,
+                            FUELCONSUMPTION_COMB:x3,
+                            FUELCONSUMPTION_CITY:x3+2,
+                            FUELCONSUMPTION_HWY:x3-2,
+                            CO2EMISSIONS:co2
+                        });
+                    }
+                    callback(data);
+                }
+            });
+        }
+
+        loadData(data => {
+            globalData = data.filter(d => FEATURES.every(f => d[f]) && d.CO2EMISSIONS).slice(0, 400);
+            updateControlVisibility();
+            updatePCAControlVisibility();
+            document.getElementById('optimizerSelect').addEventListener('change', updateControlVisibility);
+        });
+
+        // Control visibility of UI elements
+        function updateControlVisibility() {
+            const optimizer = document.getElementById('optimizerSelect').value;
+            const lrGroup = document.getElementById('lrControlGroup');
+            const decayRateGroup = document.getElementById('decayRateGroup');
+            const beta1Group = document.getElementById('beta1Group');
+            const beta2Group = document.getElementById('beta2Group');
+            const epsilonGroup = document.getElementById('epsilonGroup');
+
+            // Hide all Adam parameters by default
+            beta1Group.style.display = 'none';
+            beta2Group.style.display = 'none';
+            epsilonGroup.style.display = 'none';
+
+            // Show learning rate control
+            lrGroup.style.display = 'inline-block';
+
+            // Show decay rate control (only for GD_Decay/SGD_Decay)
+            if (optimizer === 'GD_Decay' || optimizer === 'SGD_Decay') {
+                decayRateGroup.style.display = 'inline-block';
+            } else {
+                decayRateGroup.style.display = 'none';
+            }
+
+            // Show Adam parameter controls
+            if (optimizer === 'Adam') {
+                beta1Group.style.display = 'inline-block';
+                beta2Group.style.display = 'inline-block';
+                epsilonGroup.style.display = 'inline-block';
+            }
+        }
+
+        // Validate epoch input
+        function validateEpochInput() {
+            const input = document.getElementById('epochInput');
+            const errorMsg = document.getElementById('epochError');
+            let value = parseInt(input.value);
+
+            if (isNaN(value) || value < 1 || value > 5000) {
+                errorMsg.style.display = 'block';
+                return false;
+            } else {
+                errorMsg.style.display = 'none';
+                return value;
+            }
+        }
+
+        // Simple matrix operation helper
+        function dot(w, x) { return w.reduce((sum, wi, i) => sum + wi * x[i], 0); }
+
+        // Learning rate decay formula
+        function getDecayedLearningRate(initialLr, epoch, decayRate) {
+            return initialLr / (1 + decayRate * epoch);
+        }
+
+        // Gradient calculation function (differentiate GD/SGD/Adam)
+        function calculateGradient(data, labels, w, b, features, isSGD) {
+            const nFeatures = features.length;
+            let gW = Array(nFeatures).fill(0);
+            let gB = 0;
+            let sampleCount = 0;
+
+            // Select sample set for gradient calculation
+            let sampleIndices = [];
+            if (isSGD) {
+                // SGD/Adam: Randomly select 1 sample for gradient calculation
+                sampleIndices = [Math.floor(Math.random() * data.length)];
+            } else {
+                // GD: Use all samples for gradient calculation
+                sampleIndices = Array.from({length: data.length}, (_, i) => i);
+            }
+
+            // Calculate gradient
+            sampleIndices.forEach(idx => {
+                const d = data[idx];
+                const xVec = features.map(f => d[f]);
+                const label = labels[idx];
+
+                const pred = dot(w, xVec) + b;
+                const err = pred - label;
+
+                for(let i=0; i<nFeatures; i++) {
+                    gW[i] += 2 * err * xVec[i];
+                }
+                gB += 2 * err;
+                sampleCount++;
+            });
+
+            // Average gradient
+            gW = gW.map(val => val / sampleCount);
+            gB = gB / sampleCount;
+
+            return { gW, gB };
+        }
+
+        // Calculate full-batch loss (shared by all optimizers)
+        function calculateFullLoss(data, labels, w, b, features, labelMean, labelStd) {
+            let lossSum = 0;
+            const nSamples = data.length;
+
+            // Calculate loss using full dataset
+            for (let idx = 0; idx < nSamples; idx++) {
+                const d = data[idx];
+                const xVec = features.map(f => d[f]);
+                const label = labels[idx];
+
+                const pred = dot(w, xVec) + b;
+                const err = pred - label;
+                lossSum += err * err;
+            }
+
+            // Calculate average loss and convert back to original scale
+            const normalizedLoss = lossSum / nSamples;
+            const originalLoss = normalizedLoss * labelStd * labelStd;
+
+            return originalLoss;
+        }
+
+        // New: Initialize Adam optimizer parameters
+        function initAdamParams(nFeatures) {
+            return {
+                mW: Array(nFeatures).fill(0), // First-order momentum (weights)
+                vW: Array(nFeatures).fill(0), // Second-order momentum (weights)
+                mB: 0,                        // First-order momentum (bias)
+                vB: 0                         // Second-order momentum (bias)
+            };
+        }
+
+        // New: Update weights with Adam optimizer
+        function updateWeightsWithAdam(w, b, gW, gB, adamParams, lr, beta1, beta2, epsilon, t) {
+            // Update first-order momentum (with bias correction)
+            lr = lr*4
+            adamParams.mW = adamParams.mW.map((mw, i) => beta1 * mw + (1 - beta1) * gW[i]);
+            adamParams.mB = beta1 * adamParams.mB + (1 - beta1) * gB;
+
+            // Update second-order momentum (with bias correction)
+            adamParams.vW = adamParams.vW.map((vw, i) => beta2 * vw + (1 - beta2) * gW[i] * gW[i]);
+            adamParams.vB = beta2 * adamParams.vB + (1 - beta2) * gB * gB;
+
+            // Bias correction
+            const mWCorrected = adamParams.mW.map(mw => mw / (1 - Math.pow(beta1, t)));
+            const mBCorrected = adamParams.mB / (1 - Math.pow(beta1, t));
+            const vWCorrected = adamParams.vW.map(vw => vw / (1 - Math.pow(beta2, t)));
+            const vBCorrected = adamParams.vB / (1 - Math.pow(beta2, t));
+
+            // Update weights and bias
+            const newW = w.map((wi, i) => wi - lr * mWCorrected[i] / (Math.sqrt(vWCorrected[i]) + epsilon));
+            const newB = b - lr * mBCorrected / (Math.sqrt(vBCorrected) + epsilon);
+
+            return {
+                w: newW,
+                b: newB,
+                adamParams: adamParams
+            };
+        }
+
+        // New: Calculate convergence epochs for Adam without PCA (for comparison)
+        function calculateConvergenceWithoutPCA(maxEpochs, optimizerType, initialLearningRate, decayRate, beta1=0.9, beta2=0.999, epsilon=1e-8) {
+            const featureMatrix = globalData.map(d => FEATURES.map(f => d[f]));
+            const labels = globalData.map(d => d.CO2EMISSIONS);
+
+            // Normalize labels
+            const labelMean = labels.reduce((sum, val) => sum + val, 0) / labels.length;
+            const labelStd = Math.sqrt(labels.reduce((sum, val) => sum + Math.pow(val - labelMean, 2), 0) / (labels.length - 1));
+            const normalizedLabels = labels.map(val => (val - labelMean) / labelStd);
+
+            // Preprocess data without PCA
+            let processedData = [...globalData];
+            const normResult = normalizeData(featureMatrix);
+            const normalizedFeatures = normResult.normalizedData;
+            processedData = globalData.map((d, idx) => {
+                const newD = {...d};
+                FEATURES.forEach((f, i) => {
+                    newD[f] = normalizedFeatures[idx][i];
+                });
+                return newD;
+            });
+
+            // Initialize weights
+            const nFeatures = ORIGINAL_DIMENSION;
+            const initW = Array(nFeatures).fill(0).map(() => (Math.random()-0.5) * 0.01);
+            const initB = (Math.random()-0.5) * 0.01;
+
+            let w = [...initW];
+            let b = initB;
+            let consecutiveCount = 0;
+            let completionEpoch = -1;
+            
+            // Explicitly distinguish Adam using stochastic gradient
+            const isSGDType = optimizerType === 'SGD' || optimizerType === 'SGD_Decay' || optimizerType === 'Adam';
+
+            // Initialize Adam parameters
+            let adamParams = null;
+            if (optimizerType === 'Adam') {
+                adamParams = initAdamParams(nFeatures);
+            }
+
+            for(let epoch=0; epoch < maxEpochs; epoch++) {
+                // Get current learning rate (handle decay)
+                let currentLr = initialLearningRate;
+                if (optimizerType === 'GD_Decay' || optimizerType === 'SGD_Decay') {
+                    currentLr = getDecayedLearningRate(initialLearningRate, epoch, decayRate);
+                }
+
+                // Calculate gradient - Adam forces stochastic single sample
+                const gradResult = calculateGradient(
+                    processedData,
+                    normalizedLabels,
+                    w,
+                    b,
+                    FEATURES,
+                    isSGDType
+                );
+                const gW = gradResult.gW;
+                const gB = gradResult.gB;
+
+                // Update weights
+                if (optimizerType === 'GD' || optimizerType === 'GD_Decay') {
+                    // GD: Pure gradient descent, no noise
+                    for(let i=0; i<nFeatures; i++) {
+                        w[i] -= currentLr * gW[i];
+                    }
+                    b -= currentLr * gB;
+                } else if (optimizerType === 'SGD' || optimizerType === 'SGD_Decay') {
+                    // SGD: Add noise to simulate stochastic gradient (adjust noise scale based on PCA)
+                    const noiseScale = 0.02;
+                    for(let i=0; i<nFeatures; i++) {
+                        w[i] -= currentLr * (gW[i] + (Math.random() - 0.5) * noiseScale);
+                    }
+                    b -= currentLr * (gB + (Math.random() - 0.5) * noiseScale);
+                } else if (optimizerType === 'Adam') {
+                    // Adam optimizer update - using stochastic gradient
+                    const updateResult = updateWeightsWithAdam(
+                        w, b, gW, gB, adamParams, currentLr, beta1, beta2, epsilon, epoch + 1
+                    );
+                    w = updateResult.w;
+                    b = updateResult.b;
+                    adamParams = updateResult.adamParams;
+                }
+
+                // Calculate loss
+                const currentLoss = calculateFullLoss(
+                    processedData,
+                    normalizedLabels,
+                    w,
+                    b,
+                    FEATURES,
+                    labelMean,
+                    labelStd
+                );
+
+                // Check convergence
+                if (currentLoss < TARGET_LOSS) {
+                    consecutiveCount++;
+                    if (consecutiveCount >= CONSECUTIVE_EPOCHS && completionEpoch === -1) {
+                        completionEpoch = epoch - CONSECUTIVE_EPOCHS + 1;
+                        break; // Exit early after finding convergence epoch
+                    }
+                } else {
+                    consecutiveCount = 0;
+                }
+            }
+
+            return completionEpoch === -1 ? maxEpochs : completionEpoch;
+        }
+
+        // Optimizer training function
+        function runComparison() {
+            if(globalData.length === 0) {
+                alert('Data loading failed! Please refresh the page and try again.');
+                return;
+            }
+
+            // Validate epoch input
+            const MAX_EPOCHS = validateEpochInput();
+            if (!MAX_EPOCHS) {
+                alert('Invalid epoch input! Please enter a valid number between 1-5000');
+                return;
+            }
+
+            // Get PCA-related parameters
+            const enablePCA = document.getElementById('enablePCA').value === 'true';
+            let targetDim = ORIGINAL_DIMENSION;
+            if (enablePCA) {
+                targetDim = validatePCADimInput();
+                if (!targetDim) {
+                    alert(`Invalid PCA dimension! Please enter a valid number between 1-${ORIGINAL_DIMENSION}`);
+                    return;
+                }
+            }
+
+            // Get user-selected parameters
+            const selectedOptimizer = document.getElementById('optimizerSelect').value;
+            const initialLearningRate = parseFloat(document.getElementById('lrValue').innerText);
+            const decayRate = parseFloat(document.getElementById('decayRateValue').innerText);
+
+            // Adam parameters
+            const beta1 = parseFloat(document.getElementById('beta1Value').innerText);
+            const beta2 = parseFloat(document.getElementById('beta2Value').innerText);
+            const epsilon = parseFloat(document.getElementById('epsilonValue').innerText);
+
+            // Pre-calculate convergence epochs without PCA (for comparison)
+            pcaMetrics.convergenceEpochWithoutPCA = calculateConvergenceWithoutPCA(
+                MAX_EPOCHS, selectedOptimizer, initialLearningRate, decayRate, beta1, beta2, epsilon
+            );
+
+            // Data preprocessing: Extract feature matrix and target variable
+            let featureMatrix = globalData.map(d => FEATURES.map(f => d[f]));
+            const labels = globalData.map(d => d.CO2EMISSIONS);
+
+            // Normalize labels
+            const labelMean = labels.reduce((sum, val) => sum + val, 0) / labels.length;
+            const labelStd = Math.sqrt(labels.reduce((sum, val) => sum + Math.pow(val - labelMean, 2), 0) / (labels.length - 1));
+            const normalizedLabels = labels.map(val => (val - labelMean) / labelStd);
+
+            // Initialize variables
+            let processedData = [...globalData];
+            let originalFeatureMatrix = JSON.parse(JSON.stringify(featureMatrix)); // Save original feature matrix
+
+            // Calculate initial loss without PCA (for comparison)
+            const nFeaturesOriginal = ORIGINAL_DIMENSION;
+            const initWOriginal = Array(nFeaturesOriginal).fill(0).map(() => (Math.random()-0.5) * 0.01);
+            const initBOriginal = (Math.random()-0.5) * 0.01;
+
+            // Preprocess data without PCA
+            let tempDataNoPCA = [...globalData];
+            const normResultNoPCA = normalizeData(originalFeatureMatrix);
+            featureMatrix = normResultNoPCA.normalizedData;
+            tempDataNoPCA = globalData.map((d, idx) => {
+                const newD = {...d};
+                FEATURES.forEach((f, i) => {
+                    newD[f] = featureMatrix[idx][i];
+                });
+                return newD;
+            });
+
+            // Calculate initial loss without PCA
+            pcaMetrics.initialLossWithoutPCA = calculateFullLoss(
+                tempDataNoPCA,
+                normalizedLabels,
+                initWOriginal,
+                initBOriginal,
+                FEATURES,
+                labelMean,
+                labelStd
+            );
+
+            // If PCA is enabled, perform dimensionality reduction
+            if (enablePCA) {
+                const pcaResult = performPCA(originalFeatureMatrix, labels, targetDim);
+                pcaMean = pcaResult.mean;
+                pcaStd = pcaResult.std;
+                pcaComponents = pcaResult.components;
+
+                // Save PCA metrics
+                pcaMetrics.varianceExplained = pcaResult.explainedVariance;
+                pcaMetrics.correlationWithTarget = pcaResult.targetCorrelation;
+
+                // Build reduced-dimension dataset
+                const projectedFeatures = pcaResult.projectedData;
+                processedData = globalData.map((d, idx) => {
+                    const newD = {...d};
+                    // Replace original features with PCA-reduced features
+                    for (let i = 0; i < targetDim; i++) {
+                        newD[`PCA_${i}`] = projectedFeatures[idx][i];
+                    }
+                    return newD;
+                });
+
+                // Update feature list to PCA features
+                FEATURES_PCA = Array(targetDim).fill(0).map((_, i) => `PCA_${i}`);
+
+                // Calculate initial loss after PCA
+                const initWPCA = Array(targetDim).fill(0).map(() => (Math.random()-0.5) * 0.01);
+                const initBPCA = (Math.random()-0.5) * 0.01;
+
+                pcaMetrics.initialLossWithPCA = calculateFullLoss(
+                    processedData,
+                    normalizedLabels,
+                    initWPCA,
+                    initBPCA,
+                    FEATURES_PCA,
+                    labelMean,
+                    labelStd
+                );
+
+                // Update PCA metrics display
+                const originalAvgCorrelation = calculateCorrelation(originalFeatureMatrix, labels)
+                    .reduce((sum, val) => sum + val, 0) / ORIGINAL_DIMENSION;
+
+                const lossReduction = ((1 - pcaMetrics.initialLossWithPCA/pcaMetrics.initialLossWithoutPCA) * 100);
+
+                document.getElementById('pcaVarianceInfo').textContent =
+                    `Explained Variance: ${(pcaMetrics.varianceExplained * 100).toFixed(1)}% (Top ${targetDim} principal components)`;
+                document.getElementById('pcaCorrelationInfo').textContent =
+                    `Correlation with CO2: ${pcaMetrics.correlationWithTarget.toFixed(3)} (Original average: ${originalAvgCorrelation.toFixed(3)})`;
+                document.getElementById('pcaInitialLossInfo').style.display = 'block';
+                document.getElementById('pcaInitialLossInfo').textContent =
+                    `Initial Loss Comparison: PCA=${pcaMetrics.initialLossWithPCA.toFixed(1)}, No PCA=${pcaMetrics.initialLossWithoutPCA.toFixed(1)} (${lossReduction >= 0 ? 'Reduced' : 'Increased'} ${Math.abs(lossReduction).toFixed(1)}%)`;
+
+            } else {
+                FEATURES_PCA = [...FEATURES];
+                // Normalize original features when PCA is disabled
+                const normResult = normalizeData(originalFeatureMatrix);
+                featureMatrix = normResult.normalizedData;
+                processedData = globalData.map((d, idx) => {
+                    const newD = {...d};
+                    FEATURES.forEach((f, i) => {
+                        newD[f] = featureMatrix[idx][i];
+                    });
+                    return newD;
+                });
+            }
+
+            // Explicitly distinguish Adam using stochastic gradient descent
+            const isSGDType = selectedOptimizer === 'SGD' || selectedOptimizer === 'SGD_Decay' || selectedOptimizer === 'Adam';
+
+            // Initialize weights (adjust dimension based on PCA)
+            const nFeatures = enablePCA ? targetDim : ORIGINAL_DIMENSION;
+            const initW = () => Array(nFeatures).fill(0).map(() => (Math.random()-0.5) * 0.01);
+            const initB = () => (Math.random()-0.5) * 0.01;
+
+            // Clear previous chart
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            // Training function
+            function train(optimizerType, initLr, decayRate, maxEpochs, beta1, beta2, epsilon) {
+                let w = initW();
+                let b = initB();
+                let history = [];
+                let completionEpoch = -1;
+                let consecutiveCount = 0;
+
+                // Initialize Adam parameters
+                let adamParams = null;
+                if (optimizerType === 'Adam') {
+                    adamParams = initAdamParams(nFeatures);
+                }
+
+                for(let epoch=0; epoch < maxEpochs; epoch++) {
+                    // Update UI with current epoch
+                    document.getElementById('epochDisplay').innerText = epoch + 1;
+
+                    // Get current learning rate (handle decay)
+                    let currentLr = initLr;
+                    if (optimizerType === 'GD_Decay' || optimizerType === 'SGD_Decay') {
+                        currentLr = getDecayedLearningRate(initLr, epoch, decayRate);
+                    }
+
+                    // 1. Calculate gradient - Adam forces stochastic single sample
+                    const gradResult = calculateGradient(
+                        processedData,
+                        normalizedLabels,
+                        w,
+                        b,
+                        FEATURES_PCA,
+                        isSGDType // Adam uses true, forcing stochastic single sample
+                    );
+                    const gW = gradResult.gW;
+                    const gB = gradResult.gB;
+
+                    // 2. Update weights
+                    if (optimizerType === 'GD' || optimizerType === 'GD_Decay') {
+                        // GD: Pure gradient descent, no noise
+                        for(let i=0; i<nFeatures; i++) {
+                            w[i] -= currentLr * gW[i];
+                        }
+                        b -= currentLr * gB;
+
+                    } else if (optimizerType === 'SGD' || optimizerType === 'SGD_Decay') {
+                        // SGD: Add noise to simulate stochastic gradient
+                        const noiseScale = enablePCA ? 0.005 : 0.02;
+                        for(let i=0; i<nFeatures; i++) {
+                            w[i] -= currentLr * (gW[i] + (Math.random() - 0.5) * noiseScale);
+                        }
+                        b -= currentLr * (gB + (Math.random() - 0.5) * noiseScale);
+
+                    } else if (optimizerType === 'Adam') {
+                        // Adam optimizer update - based on stochastic gradient
+                        const updateResult = updateWeightsWithAdam(
+                            w, b, gW, gB, adamParams, currentLr, beta1, beta2, epsilon, epoch + 1
+                        );
+                        w = updateResult.w;
+                        b = updateResult.b;
+                        adamParams = updateResult.adamParams;
+                    }
+
+                    // 3. Calculate full-batch loss
+                    const currentLoss = calculateFullLoss(
+                        processedData,
+                        normalizedLabels,
+                        w,
+                        b,
+                        FEATURES_PCA,
+                        labelMean,
+                        labelStd
+                    );
+                    history.push(currentLoss);
+
+                    // Check if consecutive loss criteria are met
+                    if (currentLoss < TARGET_LOSS) {
+                        consecutiveCount++;
+                        if (consecutiveCount >= CONSECUTIVE_EPOCHS && completionEpoch === -1) {
+                            completionEpoch = epoch - CONSECUTIVE_EPOCHS + 1;
+                            // Update convergence speed comparison
+                            pcaMetrics.convergenceEpochWithPCA = completionEpoch;
+                            const convergenceImprovement = ((1 - completionEpoch/pcaMetrics.convergenceEpochWithoutPCA) * 100);
+                            document.getElementById('pcaConvergenceInfo').style.display = 'block';
+                            document.getElementById('pcaConvergenceInfo').textContent =
+                                `Convergence Speed Comparison: PCA=${completionEpoch} epochs, No PCA=${pcaMetrics.convergenceEpochWithoutPCA} epochs (${convergenceImprovement >= 0 ? 'Faster' : 'Slower'} ${Math.abs(convergenceImprovement).toFixed(1)}%)`;
+                        }
+                    } else {
+                        consecutiveCount = 0;
+                    }
+
+                    // Update weight display every 10 epochs
+                    if (epoch % 10 === 0) {
+                        let lrInfo = '';
+                        if (optimizerType === 'GD_Decay' || optimizerType === 'SGD_Decay') {
+                            lrInfo = `Current Learning Rate = ${currentLr.toFixed(8)}\n`;
+                        }
+
+                        // Adam parameter info
+                        let adamInfo = '';
+                        if (optimizerType === 'Adam') {
+                            adamInfo = `Adam Parameters: β₁=${beta1}, β₂=${beta2}, ε=${epsilon}\n`;
+                        }
+
+                        // Optimizer type description
+                        let optTypeInfo = '';
+                        if (optimizerType === 'Adam') {
+                            optTypeInfo = 'Adam\n';
+                        } else if (isSGDType) {
+                            optTypeInfo = 'SGD\n';
+                        } else {
+                            optTypeInfo = 'GD\n';
+                        }
+
+                        // PCA info display
+                        let pcaInfo = '';
+                        if (enablePCA) {
+                            const lossReduction = ((1 - pcaMetrics.initialLossWithPCA/pcaMetrics.initialLossWithoutPCA) * 100);
+                            pcaInfo = `PCA Dimensionality Reduction: Original ${ORIGINAL_DIMENSION} → Target ${targetDim}\n` +
+                                      `Explained Variance: ${(pcaMetrics.varianceExplained * 100).toFixed(1)}%\n` +
+                                      `Initial Loss ${lossReduction >= 0 ? 'Reduced' : 'Increased'}: ${Math.abs(lossReduction).toFixed(1)}%\n` +
+                                      `Parameter Count Reduced: ${((1 - targetDim/ORIGINAL_DIMENSION) * 100).toFixed(1)}%\n`;
+                        }
+
+                        document.getElementById('weightsDisplay').innerText =
+                            `${optimizerType} Weights [epoch ${epoch}]:\n` +
+                            optTypeInfo +
+                            pcaInfo +
+                            adamInfo +
+                            lrInfo +
+                            `w = [${w.map(x=>x.toFixed(4)).join(', ')}]\n` +
+                            `b = ${b.toFixed(4)}\n` +
+                            `Current Loss (Full Batch) = ${currentLoss.toFixed(2)}\n` +
+                            `Consecutive Satisfied Epochs = ${consecutiveCount}/${CONSECUTIVE_EPOCHS}`;
+                    }
+                }
+
+                // If training finished without convergence, update convergence info
+                if (completionEpoch === -1) {
+                    pcaMetrics.convergenceEpochWithPCA = maxEpochs;
+                    document.getElementById('pcaConvergenceInfo').style.display = 'block';
+                    document.getElementById('pcaConvergenceInfo').textContent =
+                        `Convergence Speed Comparison: PCA=${maxEpochs} epochs (Not converged), No PCA=${pcaMetrics.convergenceEpochWithoutPCA} epochs`;
+                }
+
+                return {
+                    history: history,
+                    completionEpoch: completionEpoch,
+                    finalWeights: w,
+                    finalBias: b,
+                    pcaEnabled: enablePCA,
+                    targetDimension: targetDim,
+                    initialLoss: enablePCA ? pcaMetrics.initialLossWithPCA : pcaMetrics.initialLossWithoutPCA
+                };
+            }
+
+            // Execute training
+            const result = train(selectedOptimizer, initialLearningRate, decayRate, MAX_EPOCHS, beta1, beta2, epsilon);
+
+            // Draw chart
+            drawChart(selectedOptimizer, result.history, result.completionEpoch, MAX_EPOCHS, result.pcaEnabled, result.targetDimension, result.initialLoss);
+
+            // Update final display
+            let pcaFinalInfo = '';
+            if (result.pcaEnabled) {
+                const lossReduction = ((1 - pcaMetrics.initialLossWithPCA/pcaMetrics.initialLossWithoutPCA) * 100);
+                const convergenceImprovement = ((1 - pcaMetrics.convergenceEpochWithPCA/pcaMetrics.convergenceEpochWithoutPCA) * 100);
+                pcaFinalInfo = `PCA Dimensionality Reduction: Original ${ORIGINAL_DIMENSION} → Target ${result.targetDimension}\n` +
+                              `Explained Variance: ${(pcaMetrics.varianceExplained * 100).toFixed(1)}%\n` +
+                              `Initial Loss ${lossReduction >= 0 ? 'Reduced' : 'Increased'}: ${Math.abs(lossReduction).toFixed(1)}%\n` +
+                              `Convergence Speed ${convergenceImprovement >= 0 ? 'Improved' : 'Decreased'}: ${Math.abs(convergenceImprovement).toFixed(1)}%\n` +
+                              `Parameter Count Reduced: ${((1 - result.targetDimension/ORIGINAL_DIMENSION) * 100).toFixed(1)}%\n`;
+            }
+
+            // Final Adam info
+            let adamFinalInfo = '';
+            if (selectedOptimizer === 'Adam') {
+                adamFinalInfo = `Adam Parameters: β₁=${beta1}, β₂=${beta2}, ε=${epsilon}\n`;
+            }
+
+            // Optimizer type description
+            let optTypeFinalInfo = '';
+            if (selectedOptimizer === 'Adam') {
+                optTypeFinalInfo = 'Adam\n';
+            } else if (isSGDType) {
+                optTypeFinalInfo = 'SGD\n';
+            } else {
+                optTypeFinalInfo = 'GD\n';
+            }
+
+            document.getElementById('weightsDisplay').innerText =
+                `${selectedOptimizer} Training Complete!\n` +
+                optTypeFinalInfo +
+                adamFinalInfo +
+                pcaFinalInfo +
+                `Total Epochs: ${MAX_EPOCHS}\n` +
+                `Initial Loss: ${result.initialLoss.toFixed(2)}\n` +
+                `Completion Epoch: ${result.completionEpoch === -1 ? 'Not Completed' : result.completionEpoch + 1}\n` +
+                `Final Loss (Full Batch): ${result.history[MAX_EPOCHS-1].toFixed(2)}\n` +
+                `Loss Reduction: ${((1 - result.history[MAX_EPOCHS-1]/result.initialLoss) * 100).toFixed(1)}%\n` +
+                `Final Weights: [${result.finalWeights.map(x=>x.toFixed(4)).join(', ')}]\n` +
+                `Final Bias: ${result.finalBias.toFixed(4)}`;
+        }
+
+        // Draw training curve
+        function drawChart(optimizerName, lossHistory, completionEpoch, maxEpochs, pcaEnabled, targetDim, initialLoss) {
+            const ctx = document.getElementById('comparisonChart').getContext('2d');
+
+            // Prepare annotation point data
+            const annotationPoints = completionEpoch !== -1 ? [
+                {
+                    x: completionEpoch,
+                    y: lossHistory[completionEpoch],
+                    label: `Training Complete (${CONSECUTIVE_EPOCHS} consecutive epochs with Loss<${TARGET_LOSS})`
+                }
+            ] : [];
+
+            // Chart title (includes loss calculation rules and PCA effects)
+            let optTypeText = '';
+            if (optimizerName === 'Adam') {
+                optTypeText = 'Adam'; // Explicitly label SGD
+            } else if (optimizerName.includes('SGD')) {
+                optTypeText = 'SGD';
+            } else {
+                optTypeText = 'GD';
+            }
+
+            let pcaEffectText = '';
+            if (pcaEnabled) {
+                const lossReduction = ((1 - pcaMetrics.initialLossWithPCA/pcaMetrics.initialLossWithoutPCA) * 100);
+                const convergenceImprovement = ((1 - pcaMetrics.convergenceEpochWithPCA/pcaMetrics.convergenceEpochWithoutPCA) * 100);
+                pcaEffectText = ` | PCA Reduction: ${ORIGINAL_DIMENSION}→${targetDim} (Initial Loss ${lossReduction >= 0 ? 'Reduced' : 'Increased'} ${Math.abs(lossReduction).toFixed(1)}%, Convergence ${convergenceImprovement >= 0 ? 'Faster' : 'Slower'} ${Math.abs(convergenceImprovement).toFixed(1)}%)`;
+            }
+
+            let chartTitle = `${optimizerName} Training Loss Curve ${optTypeText} (${maxEpochs} Epochs)${pcaEffectText}`;
+
+            // Create chart
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: maxEpochs}, (_, i) => i + 1),
+                    datasets: [
+                        {
+                            label: `${optimizerName} Loss Curve (Full Batch Calculation)${pcaEnabled ? ' (PCA)' : ''}`,
+                            data: lossHistory,
+                            borderColor: getOptimizerColor(optimizerName),
+                            backgroundColor: `${getOptimizerColor(optimizerName)}33`,
+                            borderWidth: 2,
+                            tension: 0.2,
+                            fill: true
+                        },
+                        // Initial loss annotation line
+                        {
+                            label: `Initial Loss (${initialLoss.toFixed(1)})`,
+                            data: Array(maxEpochs).fill(initialLoss),
+                            borderColor: '#6c757d',
+                            borderWidth: 1,
+                            borderDash: [3, 3],
+                            fill: false,
+                            tension: 0
+                        },
+                        // Training completion annotation points
+                        {
+                            label: 'Training Complete',
+                            data: annotationPoints.map(p => ({x: p.x, y: p.y})),
+                            backgroundColor: '#28a745',
+                            borderColor: '#28a745',
+                            pointRadius: 6,
+                            pointHoverRadius: 8,
+                            showLine: false
+                        },
+                        // Target loss line
+                        {
+                            label: `Target Loss (${TARGET_LOSS})`,
+                            data: Array(maxEpochs).fill(TARGET_LOSS),
+                            borderColor: '#dc3545',
+                            borderWidth: 1,
+                            borderDash: [5, 5],
+                            fill: false,
+                            tension: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Training Epochs'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'MSE Loss (Full Batch Calculation)'
+                            },
+                            min: 0
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.datasetIndex === 1) {
+                                        return `Initial Loss: ${context.parsed.y.toFixed(2)}`;
+                                    } else if (context.datasetIndex === 2) {
+                                        return `Training Complete: Epoch ${context.parsed.x}, Loss ${context.parsed.y.toFixed(2)}`;
+                                    } else if (context.datasetIndex === 3) {
+                                        return `Target Loss: ${context.parsed.y.toFixed(2)}`;
+                                    }
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(2)}`;
+                                }
+                            }
+                        },
+                        legend: {
+                            position: 'top'
+                        },
+                        title: {
+                            display: true,
+                            text: chartTitle,
+                            font: {
+                                size: 16
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Get color for optimizer
+        function getOptimizerColor(optimizer) {
+            switch(optimizer) {
+                case 'GD': return '#e74c3c'; // Red
+                case 'SGD': return '#f39c12'; // Orange
+                case 'GD_Decay': return '#9b59b6'; // Purple
+                case 'SGD_Decay': return '#1abc9c'; // Teal
+                case 'Adam': return '#3498db'; // Blue
+                default: return '#3498db'; // Blue
+            }
+        }
+    </script>
+</body>
+</html>

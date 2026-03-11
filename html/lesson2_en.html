@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>P2 Limitations of Simple Linear Regression</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Import Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Import PapaParse for CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <!-- Import MathJax for LaTeX formula rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        /* Simple styling for clear page layout */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            font-family: "Arial", sans-serif;
+        }
+        .card {
+            background: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .controls {
+            margin: 15px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        button {
+            padding: 8px 16px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+        .stat-box {
+            padding: 8px 12px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            color: #2c3e50;
+            font-weight: bold;
+        }
+        .chart-container {
+            height: 400px;
+            width: 100%;
+        }
+        .highlight {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        .nav-links {
+            margin: 20px 0;
+        }
+        .nav-links a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        header a {
+            color: #3498db;
+            text-decoration: none;
+            margin-left: 10px;
+        }
+        header {
+            margin-bottom: 20px;
+        }
+        /* Hidden section styling */
+        .hidden-section {
+            display: none;
+        }
+        /* Loading state styling */
+        .loading {
+            color: #3498db;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>P2 High School Statistical Methods vs. Real-World Challenges</h1>
+            <a href="index_en.html">← Back to Navigation</a>
+        </header>
+
+        <div class="card">
+            <h2>Method Review: Least Squares Formula</h2>
+            <p>In high school statistics, we learned that we can directly calculate the coefficients of the best-fit line y = kx + b using the formula:</p>
+            <div style="background:#f5f5f5; padding:15px; border-radius:6px; margin:10px 0;">
+                $$k = \frac{\sum_{i=1}^n(x_i - \bar{x})(y_i - \bar{y})}{\sum_{i=1}^n(x_i - \bar{x})^2}, \quad b = \bar{y} - k\bar{x}$$
+            </div>
+            <p>This method is very effective and fast for <strong>single-variable (1 feature)</strong> problems, with a computational complexity of only $O(n)$ (where $n$ is the number of samples). Let's test its performance on this dataset.</p>
+        </div>
+
+        <div class="card">
+            <h2>Experiment: Training Set Fitting + Test Set Validation</h2>
+            <div class="controls">
+                <button id="experimentBtn" onclick="runExperiment()">Solve with Least Squares Method</button>
+                <span id="mseResult" class="stat-box"></span>
+                <!-- Loading tip, initially hidden -->
+                <span id="loadingTip" class="loading" style="display: none;">Calculating... Please wait</span>
+            </div>
+
+            <div class="chart-container">
+                <canvas id="regressionChart"></canvas>
+            </div>
+            <p id="conclusion" style="margin-top:15px; font-weight:bold;"></p>
+        </div>
+        <!-- Continue exploration button, initially hidden -->
+        <div id="exploreBtnContainer" style="margin: 15px 0; display: none;">
+            <button onclick="showProblemSection()">Continue Exploring → Limitations of Least Squares</button>
+        </div>
+
+        <!-- Problem discovery section, initially hidden -->
+        <div id="problemSection" class="card hidden-section">
+            <h2>Identifying the Problem: True Limitations of the Least Squares Method</h2>
+            <p>Although single-variable least squares fitting seems good, in reality, vehicle emissions depend not only on fuel consumption but also on multiple features such as <strong>engine displacement, number of cylinders, fuel type, and vehicle weight</strong>. As the number of features increases, the core problems of the least squares method become prominent:</p>
+            <p class="highlight">Core Bottlenecks:</p>
+            <ul style="line-height: 1.8; margin-left: 20px;">
+                <li><strong>Explosive formula complexity</strong>: Only 2 formulas are needed for a single variable, a 3-variable system of equations for 2 features, and an 11-variable system of equations for 10 features—manual derivation and calculation become completely infeasible;</li>
+                <li><strong>Exponential increase in computational complexity</strong>: The core of multi-dimensional least squares is solving the closed-form solution $$w = (X^TX)^{-1}X^Ty$$ where X is an n×d feature matrix (d is the number of features):
+                    <ul>
+                        <li>For d=10, matrix inversion complexity is O(d^3)=1000 operations, still acceptable;</li>
+                        <li>For d=100, inversion complexity reaches 10^6 operations, and computation time begins to increase significantly;</li>
+                        <li>For d=1000, inversion complexity skyrockets to 10^9 operations, requiring seconds or even minutes on ordinary computers, with a high risk of memory overflow;</li>
+                    </ul>
+                </li>
+                <li><strong>Poor numerical stability</strong>: In high dimensions, X^TX is highly prone to "multicollinearity" (high correlation between features), leading to near-singular matrices that cannot be inverted. Even with pseudo-inverse solutions, results deviate significantly from the true optimal solution;</li>
+                <li><strong>Inability to learn online</strong>: When new samples are added, least squares requires recalculating the entire matrix inverse, while iterative methods (such as gradient descent) only need minor parameter updates.</li>
+            </ul>
+            <p style="margin-top:10px;">This is the core motivation for gradient descent: <strong>replace "one-time exact solution" with "iterative approximation"</strong> to handle high-dimensional problems with linear complexity O(nd), balancing efficiency and numerical stability.</p>
+        </div>
+
+        <!-- Next lesson navigation link, initially hidden -->
+        <div id="nextLessonLink" class="nav-links hidden-section">
+            <a href="lesson3_en.html">Next: Introducing Loss Function Surfaces →</a>
+        </div>
+    </div>
+
+    <script>
+        let globalData = [];
+
+        function loadData(callback) {
+            Papa.parse("https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBMDeveloperSkillsNetwork-ML0101EN-SkillsNetwork/labs/Module%202/data/FuelConsumptionCo2.csv", {
+                download: true, header: true, dynamicTyping: true,
+                complete: function(results) { callback(results.data); },
+                error: function() {
+                    // Fallback mock data - ensure functionality without CSV file
+                    const data = [];
+                    for(let i=0; i<200; i++) {
+                        const fuel = 5 + Math.random() * 20;
+                        const co2 = fuel * 2.3 + 10 + (Math.random() - 0.5) * 10;
+                        data.push({ FUELCONSUMPTION_COMB: fuel, CO2EMISSIONS: co2 });
+                    }
+                    callback(data);
+                }
+            });
+        }
+
+        // Load data when page loads
+        loadData(data => {
+            globalData = data.filter(d => d.FUELCONSUMPTION_COMB && d.CO2EMISSIONS).slice(0, 300);
+        });
+
+        function runExperiment() {
+            // Get elements
+            const experimentBtn = document.getElementById('experimentBtn');
+            const loadingTip = document.getElementById('loadingTip');
+            const mseResult = document.getElementById('mseResult');
+            const exploreBtnContainer = document.getElementById('exploreBtnContainer');
+
+            // Disable button, show loading tip, clear old results
+            experimentBtn.disabled = true;
+            loadingTip.style.display = 'inline';
+            mseResult.innerText = '';
+            document.getElementById('conclusion').innerText = '';
+            exploreBtnContainer.style.display = 'none'; // Hide continue button
+
+            if(globalData.length === 0) {
+                alert("Data loading failed! Please check CSV file path or wait for mock data to load.");
+                experimentBtn.disabled = false;
+                loadingTip.style.display = 'none';
+                return;
+            }
+
+            // Simulate 3 seconds of complex computation (async execution)
+            setTimeout(() => {
+                // 1. Random shuffle and split (80% training, 20% testing)
+                const shuffled = [...globalData].sort(() => 0.5 - Math.random());
+                const splitIndex = Math.floor(shuffled.length * 0.8);
+                const trainSet = shuffled.slice(0, splitIndex);
+                const testSet = shuffled.slice(splitIndex);
+
+                // 2. Calculate k and b using high school formula (training set only)
+                const n = trainSet.length;
+                let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+
+                trainSet.forEach(d => {
+                    const x = d.FUELCONSUMPTION_COMB;
+                    const y = d.CO2EMISSIONS;
+                    sumX += x;
+                    sumY += y;
+                    sumXY += x*y;
+                    sumXX += x*x;
+                });
+
+                const meanX = sumX / n;
+                const meanY = sumY / n;
+
+                // Handle extreme case where denominator is 0
+                const denominator = sumXX - n * meanX * meanX;
+                const k = denominator === 0 ? 0 : (sumXY - n * meanX * meanY) / denominator;
+                const b = meanY - k * meanX;
+
+                // 3. Evaluate MSE (Mean Squared Error) on test set
+                let mse = 0;
+                testSet.forEach(d => {
+                    const pred = k * d.FUELCONSUMPTION_COMB + b;
+                    mse += Math.pow(pred - d.CO2EMISSIONS, 2);
+                });
+                mse /= testSet.length;
+
+                // 4. Draw chart
+                const ctx = document.getElementById('regressionChart').getContext('2d');
+
+                // Prepare chart data
+                const trainPoints = trainSet.map(d => ({x: d.FUELCONSUMPTION_COMB, y: d.CO2EMISSIONS}));
+                const testPoints = testSet.map(d => ({x: d.FUELCONSUMPTION_COMB, y: d.CO2EMISSIONS}));
+
+                // Generate regression line data (cover entire x-axis range)
+                const allX = [...trainSet, ...testSet].map(d => d.FUELCONSUMPTION_COMB);
+                const minX = Math.min(...allX);
+                const maxX = Math.max(...allX);
+                const lineData = [
+                    {x: minX, y: k*minX + b},
+                    {x: maxX, y: k*maxX + b}
+                ];
+
+                // Destroy old chart to avoid overlap
+                if(window.myChart) window.myChart.destroy();
+
+                // Create new chart
+                window.myChart = new Chart(ctx, {
+                    type: 'scatter',
+                    data: {
+                        datasets: [
+                            {
+                                label: 'Training Set',
+                                data: trainPoints,
+                                backgroundColor: '#3498db',
+                                pointRadius: 4
+                            },
+                            {
+                                label: 'Test Set',
+                                data: testPoints,
+                                backgroundColor: '#e74c3c',
+                                pointRadius: 4
+                            },
+                            {
+                                type: 'line',
+                                label: `Fitted Line (y=${k.toFixed(2)}x+${b.toFixed(2)})`,
+                                data: lineData,
+                                borderColor: '#2c3e50',
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                tension: 0 // Straight line with no curvature
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                title: { display: true, text: 'Combined Fuel Consumption (L/100km)', font: { size: 14 } },
+                                grid: { display: true, color: '#f0f0f0' }
+                            },
+                            y: {
+                                title: { display: true, text: 'CO2 Emissions (g/km)', font: { size: 14 } },
+                                grid: { display: true, color: '#f0f0f0' }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: { font: { size: 12 } }
+                            }
+                        }
+                    }
+                });
+
+                // Update results and conclusion
+                mseResult.innerText = `Test Set MSE: ${mse.toFixed(2)}`;
+                document.getElementById('conclusion').innerText = `Conclusion: The mean squared error of the single-variable least squares model on the test set is ${mse.toFixed(2)}. This error arises because the model only uses "fuel consumption" as a single feature, while real CO2 emissions are determined by multiple features.`;
+
+                // Restore button state, hide loading tip, show continue button
+                experimentBtn.disabled = false;
+                loadingTip.style.display = 'none';
+                exploreBtnContainer.style.display = 'block';
+            }, 3000); // 3-second delay to simulate complex computation
+        }
+
+        // Function to show problem section and next lesson navigation
+        function showProblemSection() {
+            const exploreBtnContainer = document.getElementById('exploreBtnContainer');
+            const problemSection = document.getElementById('problemSection');
+            const nextLessonLink = document.getElementById('nextLessonLink');
+
+            // Hide continue button
+            exploreBtnContainer.style.display = 'none';
+            // Show problem section
+            problemSection.style.display = 'block';
+            // Show next lesson navigation link
+            nextLessonLink.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

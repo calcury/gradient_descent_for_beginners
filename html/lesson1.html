@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>P1 问题背景</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>P1 环境挑战与数据探索</h1>
+            <a href="index.html">← 返回导航</a>
+        </header>
+
+        <div class="card">
+            <h2>问题背景</h2>
+            <p>二氧化碳 (CO2) 排放是导致全球变暖的主要原因之一。汽车是重要的排放源。如果我们能根据汽车的属性（如发动机大小、油耗等）准确<strong>预测其 CO2 排放量</strong>，就能帮助政府制定政策，帮助消费者选择环保车型。</p>
+            <p><strong>目标</strong>：建立一个模型，输入汽车特征，输出预测的 CO2 值。</p>
+        </div>
+
+        <div class="card">
+            <h2>数据初探</h2>
+            <p>我们使用了加拿大政府的公开数据集 <code>FuelConsumptionCo2.csv</code>。主要包含以下字段：</p>
+            <ul>
+                <li><strong>ENGINESIZE</strong>: 发动机排量 (L)</li>
+                <li><strong>CYLINDERS</strong>: 气缸数</li>
+                <li><strong>FUELCONSUMPTION_COMB</strong>: 综合油耗 (L/100km) - <span class="highlight">关键特征</span></li>
+                <li><strong>CO2EMISSIONS</strong>: 二氧化碳排放 (g/km) - <span class="highlight">我们要预测的目标</span></li>
+            </ul>
+
+            <div id="loading">正在加载数据...</div>
+            <div class="chart-container">
+                <canvas id="scatterChart"></canvas>
+            </div>
+            <p style="text-align: center; margin-top: 10px; font-size: 0.9em; color: #666;">
+                上图展示了“综合油耗”与“CO2 排放”的关系。可以看出明显的正相关性。
+            </p>
+        </div>
+
+        <div class="nav-links">
+            <a href="lesson2.html">下一步：尝试用高中知识建模 →</a>
+        </div>
+    </div>
+
+    <script>
+        // 模拟数据生成器 (防止CSV加载失败)
+        function generateMockData() {
+            const data = [];
+            for(let i=0; i<200; i++) {
+                const fuel = 5 + Math.random() * 20;
+                const co2 = fuel * 2.3 + 10 + (Math.random() - 0.5) * 10;
+                data.push({ FUELCONSUMPTION_COMB: fuel, CO2EMISSIONS: co2 });
+            }
+            return data;
+        }
+
+        let globalData = [];
+
+        // 尝试加载 CSV，失败则用模拟数据
+        Papa.parse("https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBMDeveloperSkillsNetwork-ML0101EN-SkillsNetwork/labs/Module%202/data/FuelConsumptionCo2.csv", {
+            download: true,
+            header: true,
+            dynamicTyping: true,
+            complete: function(results) {
+                processData(results.data);
+            },
+            error: function(err) {
+                console.warn("CSV加载失败，使用模拟数据演示", err);
+                document.getElementById('loading').innerText = "未检测到本地CSV文件，已切换为模拟数据模式";
+                processData(generateMockData());
+            }
+        });
+
+        function processData(data) {
+            // 过滤空数据并提取关键字段
+            globalData = data.filter(d => d.FUELCONSUMPTION_COMB && d.CO2EMISSIONS).slice(0, 300); // 取前300个以防太多
+
+            const ctx = document.getElementById('scatterChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        label: '油耗 vs CO2 排放',
+                        data: globalData.map(d => ({x: d.FUELCONSUMPTION_COMB, y: d.CO2EMISSIONS})),
+                        backgroundColor: '#3498db'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { title: { display: true, text: '综合油耗 (L/100km)' } },
+                        y: { title: { display: true, text: 'CO2 排放 (g/km)' } }
+                    }
+                }
+            });
+            document.getElementById('loading').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

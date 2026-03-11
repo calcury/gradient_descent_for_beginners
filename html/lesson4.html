@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>P4 梯度下降原理</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>P4 梯度下降交互演示</h1>
+            <a href="index.html">← 返回导航</a>
+        </header>
+
+        <div class="card">
+            <h2>原理：沿着最陡的方向下山</h2>
+            <p>梯度 (\(\nabla L\)) 指向函数增长最快的方向。我们要最小化损失，所以要往<strong>梯度的反方向</strong>走。</p>
+            <p>更新公式：</p>
+            <div style="background:#eee; padding:10px; border-radius:4px; text-align:center;">
+                \(k_{new} = k_{old} - \alpha \cdot \frac{\partial L}{\partial k}\) <br>
+                \(b_{new} = b_{old} - \alpha \cdot \frac{\partial L}{\partial b}\)
+            </div>
+            <p>其中 \(\alpha\) 是<strong>学习率</strong>（步长）。</p>
+        </div>
+
+        <div class="card">
+            <h2>互动实验</h2>
+            <div class="controls">
+                <button class="danger" onclick="resetPath()">重置起点</button>
+                <button onclick="stepDown()">走一步</button>
+                <button onclick="autoRun()">自动运算</button>
+                <button onclick="stopAuto()">暂停</button>
+
+                <div class="label-group">
+                    <label>学习率 (α): <span id="lrVal">0.001</span></label>
+                    <input type="range" id="lrSlider" min="0.0001" max="0.01" step="0.0001" value="0.001" oninput="document.getElementById('lrVal').innerText=this.value">
+                </div>
+                <div class="stat-box">步数：<span id="stepCount">0</span></div>
+                <div class="stat-box">当前 Loss: <span id="currLoss">0.00</span></div>
+                <!-- 显示k和b的值 -->
+                <div class="stat-box">斜率 k: <span id="currK">0.00</span></div>
+                <div class="stat-box">截距 b: <span id="currB">100.00</span></div>
+                <!-- 新增：显示当前梯度值 -->
+                <div class="stat-box">梯度 dL/dk: <span id="currGradK">0.00</span></div>
+                <div class="stat-box">梯度 dL/db: <span id="currGradB">0.00</span></div>
+            </div>
+
+            <!-- 新增：左右布局的图表容器 -->
+            <div class="plots-container">
+                <div id="scatterPlot" style="height: 500px; width: 100%;"></div>
+                <div id="gdPlot" style="height: 500px; width: 100%;"></div>
+            </div>
+
+            <p>左侧：数据点与实时拟合直线 | 右侧：损失曲面与梯度下降路径（红色轨迹）</p>
+        </div>
+
+        <div class="nav-links">
+            <a href="lesson5.html">下一步：高维实战 →</a>
+        </div>
+    </div>
+
+    <style>
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; font-family: Arial; }
+        .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .controls { background: #f5f5f5; padding: 15px; border-radius: 4px; margin-bottom: 15px; }
+        button { padding: 8px 16px; margin-right: 8px; border: none; border-radius: 4px; cursor: pointer; background: #4CAF50; color: white; }
+        button.danger { background: #f44336; }
+        .label-group { margin-top: 10px; }
+        .stat-box { display: inline-block; margin-left: 20px; padding: 8px; background: #e0e0e0; border-radius: 4px; }
+        input[type=range] { width: 200px; }
+        .nav-links { margin-top: 20px; text-align: center; }
+        .nav-links a { color: #2196F3; text-decoration: none; }
+
+        /* 核心修改：左右布局样式 */
+        .plots-container {
+            display: flex;
+            gap: 20px; /* 两个图表之间的间距 */
+            width: 100%;
+            margin-bottom: 15px;
+        }
+        .plots-container > div {
+            flex: 1; /* 两个图表平分宽度 */
+            min-width: 0; /* 防止内容溢出 */
+        }
+    </style>
+
+    <script>
+        let globalData = [];
+        let k = 0, b = 0; // 初始点
+        let pathK = [], pathB = [], pathLoss = [];
+        let lr = 0.01;
+        let autoInterval;
+        let layout = null; // 保存图表布局
+
+        function loadData(callback) {
+            Papa.parse("https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBMDeveloperSkillsNetwork-ML0101EN-SkillsNetwork/labs/Module%202/data/FuelConsumptionCo2.csv", {
+                download: true,
+                header: true,
+                dynamicTyping: true,
+                complete: function(results) {
+                    callback(results.data);
+                },
+                error: function(err) {
+                    console.log("使用模拟数据");
+                    const data = [];
+                    for(let i=0; i<100; i++) {
+                        const fuel = 5 + Math.random() * 15;
+                        const co2 = fuel * 2.3 + 10 + (Math.random() - 0.5) * 5;
+                        data.push({ FUELCONSUMPTION_COMB: fuel, CO2EMISSIONS: co2 });
+                    }
+                    callback(data);
+                }
+            });
+        }
+
+        loadData(data => {
+            // 过滤并取前100个点
+            globalData = data.filter(d => d.FUELCONSUMPTION_COMB && d.CO2EMISSIONS).slice(0, 100);
+            initScatterPlot(); // 初始化散点图
+            initPlot();
+        });
+
+        function calculateLoss(k, b) {
+            if(globalData.length === 0) return 0;
+            return globalData.reduce((acc, d) => {
+                const pred = k * d.FUELCONSUMPTION_COMB + b;
+                return acc + Math.pow(d.CO2EMISSIONS - pred, 2);
+            }, 0) / globalData.length;
+        }
+
+        function calculateGradient(k, b) {
+            let gradK = 0, gradB = 0;
+            const n = globalData.length;
+            if(n === 0) return { gradK: 0, gradB: 0 };
+
+            globalData.forEach(d => {
+                const x = d.FUELCONSUMPTION_COMB;
+                const y = d.CO2EMISSIONS;
+                const pred = k * x + b;
+                const error = pred - y;
+                gradK += (2/n) * error * x;
+                gradB += (2/n) * error;
+            });
+            return { gradK, gradB };
+        }
+
+        // 新增：更新梯度显示的函数
+        function updateGradientDisplay() {
+            const { gradK, gradB } = calculateGradient(k, b);
+            document.getElementById('currGradK').innerText = gradK.toFixed(2);
+            document.getElementById('currGradB').innerText = gradB.toFixed(2);
+        }
+
+        // 初始化散点图
+        function initScatterPlot() {
+            if(globalData.length === 0) return;
+
+            // 提取x和y数据
+            const xData = globalData.map(d => d.FUELCONSUMPTION_COMB);
+            const yData = globalData.map(d => d.CO2EMISSIONS);
+
+            // 散点trace
+            const scatterTrace = {
+                x: xData,
+                y: yData,
+                mode: 'markers',
+                type: 'scatter',
+                name: '实际数据',
+                marker: {
+                    size: 6,
+                    color: '#2196F3',
+                    opacity: 0.7
+                }
+            };
+
+            // 初始拟合直线
+            const xMin = Math.min(...xData);
+            const xMax = Math.max(...xData);
+            // 生成更多的点让直线更平滑
+            const xLine = [];
+            for(let x = xMin; x <= xMax; x += 0.1) {
+                xLine.push(x);
+            }
+            const yLine = xLine.map(x => k * x + b);
+
+            const lineTrace = {
+                x: xLine,
+                y: yLine,
+                mode: 'lines',
+                type: 'scatter',
+                name: `拟合直线 (y=${k.toFixed(2)}x+${b.toFixed(2)})`,
+                line: {
+                    width: 3,
+                    color: '#f44336'
+                }
+            };
+
+            const scatterLayout = {
+                title: '燃油消耗 vs CO2排放量',
+                xaxis: { title: '燃油消耗 (L/100km)' },
+                yaxis: { title: 'CO2排放量 (g/km)' },
+                margin: { l: 60, r: 20, b: 60, t: 40 },
+                showlegend: true,
+                legend: {
+                    x: 0.02,
+                    y: 0.98,
+                    bgcolor: 'rgba(255,255,255,0.8)'
+                }
+            };
+
+            Plotly.newPlot('scatterPlot', [scatterTrace, lineTrace], scatterLayout, { responsive: true, displayModeBar: false });
+        }
+
+        // 实时更新散点图中的拟合直线
+        function updateScatterPlot() {
+            if(globalData.length === 0) return;
+
+            const xData = globalData.map(d => d.FUELCONSUMPTION_COMB);
+            const xMin = Math.min(...xData);
+            const xMax = Math.max(...xData);
+
+            // 生成密集的点保证直线平滑
+            const xLine = [];
+            for(let x = xMin; x <= xMax; x += 0.1) {
+                xLine.push(x);
+            }
+            const yLine = xLine.map(x => k * x + b);
+
+            // 更新直线数据和名称（实时显示k/b值）
+            const update = {
+                x: [xLine],
+                y: [yLine],
+                name: [`拟合直线 (y=${k.toFixed(2)}x+${b.toFixed(2)})`]
+            };
+
+            Plotly.restyle('scatterPlot', update, [1]); // 更新第二个trace（拟合直线）
+
+            // 更新k和b的显示值
+            document.getElementById('currK').innerText = k.toFixed(2);
+            document.getElementById('currB').innerText = b.toFixed(2);
+
+            // 新增：更新梯度显示
+            updateGradientDisplay();
+        }
+
+        function initPlot() {
+            // 生成背景曲面
+            const kRange = [], bRange = [];
+            for(let kVal = -5; kVal <= 35; kVal += 1) kRange.push(kVal);
+            for(let bVal = -50; bVal <= 150; bVal += 5) bRange.push(bVal);
+
+            const zData = kRange.map(kVal =>
+                bRange.map(bVal => calculateLoss(kVal, bVal))
+            );
+
+            const surfaceTrace = {
+                z: zData,
+                x: kRange,
+                y: bRange,
+                type: 'surface',
+                opacity: 0.7,
+                colorscale: 'Viridis',
+                showscale: false,
+                contours: {
+                    z: { show: true, usecolormap: true, highlightcolor: "limegreen", project: { z: true } }
+                }
+            };
+
+            layout = {
+                scene: {
+                    xaxis: { title: '斜率 k' },
+                    yaxis: { title: '截距 b' },
+                    zaxis: { title: '损失 Loss' },
+                    camera: { eye: { x: 1.5, y: 1.5, z: 1.5 } }
+                },
+                margin: { l: 0, r: 0, b: 0, t: 30 }
+            };
+
+            Plotly.newPlot('gdPlot', [surfaceTrace], layout, { responsive: true, displayModeBar: false });
+            resetPath();
+        }
+
+        function resetPath() {
+            k = 0;
+            b = 0;
+            pathK = [k];
+            pathB = [b];
+            pathLoss = [calculateLoss(k, b)];
+
+            clearInterval(autoInterval);
+            updatePlot();
+            updateScatterPlot(); // 重置时更新散点图
+            document.getElementById('stepCount').innerText = 0;
+            document.getElementById('currLoss').innerText = pathLoss[0].toFixed(2);
+            document.getElementById('currK').innerText = k.toFixed(2); // 初始化k显示
+            document.getElementById('currB').innerText = b.toFixed(2); // 初始化b显示
+
+            // 新增：重置时更新梯度显示
+            updateGradientDisplay();
+        }
+
+        function stepDown() {
+            if(globalData.length === 0) return;
+
+            const { gradK, gradB } = calculateGradient(k, b);
+            lr = parseFloat(document.getElementById('lrSlider').value);
+
+            // 梯度下降更新
+            k = k - lr * gradK;
+            b = b - lr * gradB;
+
+            pathK.push(k);
+            pathB.push(b);
+            pathLoss.push(calculateLoss(k, b));
+
+            updatePlot();
+            updateScatterPlot(); // 每步更新散点图
+            document.getElementById('stepCount').innerText = pathK.length - 1;
+            document.getElementById('currLoss').innerText = pathLoss[pathLoss.length-1].toFixed(2);
+        }
+
+        function autoRun() {
+            if(autoInterval) clearInterval(autoInterval);
+            autoInterval = setInterval(() => {
+                // 当损失变化很小或步数太多时停止
+                if(pathLoss.length > 10000) {
+                    clearInterval(autoInterval);
+                    return;
+                }
+                stepDown();
+            }, 200);
+        }
+
+        function stopAuto() {
+            clearInterval(autoInterval);
+        }
+
+        function updatePlot() {
+            // 获取当前图表的第一个trace（曲面）
+            const currentPlot = document.getElementById('gdPlot');
+            const surfaceData = currentPlot.data[0];
+
+            // 创建路径trace
+            const pathTrace = {
+                x: pathK,
+                y: pathB,
+                z: pathLoss,
+                mode: 'lines+markers',
+                type: 'scatter3d',
+                line: {
+                    width: 6,
+                    color: 'red'
+                },
+                marker: {
+                    size: 4,
+                    color: 'red'
+                },
+                name: '梯度下降路径'
+            };
+
+            // 使用保存的layout，保留曲面
+            Plotly.newPlot('gdPlot', [surfaceData, pathTrace], layout, { responsive: true, displayModeBar: false });
+        }
+
+        // 页面卸载时清除定时器
+        window.addEventListener('beforeunload', function() {
+            if(autoInterval) clearInterval(autoInterval);
+        });
+    </script>
+</body>
+</html>

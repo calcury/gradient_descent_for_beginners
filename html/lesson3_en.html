@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>P3 Loss Function Surface</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* New modal styling */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .modal-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+        }
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: #666;
+            padding: 0 10px;
+        }
+        .close-btn:hover {
+            color: #000;
+        }
+        .modal-body {
+            margin-bottom: 20px;
+        }
+        .fit-info {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        .fit-info p {
+            margin: 5px 0;
+        }
+        #fitChartContainer {
+            height: 400px;
+            width: 100%;
+            position: relative;
+        }
+        /* Existing style supplement */
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; }
+        .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .controls { margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 6px; display: flex; align-items: center; flex-wrap: wrap; gap: 15px; }
+        button { padding: 8px 16px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #1976D2; }
+        .label-group { display: flex; align-items: center; gap: 10px; margin: 0 10px; }
+        .label-group label { margin-right: 5px; font-weight: 600; }
+        .stat-box { display: inline-block; padding: 6px 12px; background: #e9ecef; border-radius: 4px; margin-left: 10px; }
+        input[type="range"] { min-width: 150px; }
+        .nav-links { margin: 20px 0; text-align: right; }
+        .nav-links a { color: #2196F3; text-decoration: none; }
+        .nav-links a:hover { text-decoration: underline; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>P3 Transforming the Problem into "Finding the Lowest Point"</h1>
+            <a href="index_en.html">← Back to Navigation</a>
+        </header>
+
+        <div class="card">
+            <h2>Loss Function</h2>
+            <p>Since we cannot directly solve the equations, we define a <strong>loss function</strong> to measure how "bad" the model is.</p>
+            <p>For linear regression y = kx + b, we use Mean Squared Error (MSE):</p>
+            <div style="background:#eee; padding:10px; border-radius:4px; text-align:center;">
+                $$L(k, b) = \frac{1}{n} \sum_{i=1}^{n} (y_i - (kx_i + b))^2$$
+            </div>
+            <p>Our goal now becomes: <strong>Find a set of (k, b) values that minimize L(k, b).</strong></p>
+        </div>
+
+        <div class="card">
+            <h2>Visualization: Loss Function Surface</h2>
+            <p>If we take k and b as the x and y axes, and the loss value L as the height (z-axis), we get a <strong>bowl-shaped surface</strong>.</p>
+            <p>The lowest point represents the optimal k and b values.</p>
+
+            <div class="controls">
+                <button onclick="drawSurface()">Redraw Surface</button>
+                <!-- New: View Fitting Effect button -->
+                <button onclick="openFitModal()" style="background-color: #4CAF50;">View Fitting Effect</button>
+
+                <div class="label-group">
+                    <label>Current k: <span id="valK">0</span></label>
+                    <input type="range" id="sliderK" min="0" max="50" step="0.1" value="0" oninput="updateMarker()">
+                </div>
+                <div class="label-group">
+                    <label>Current b: <span id="valB">0</span></label>
+                    <input type="range" id="sliderB" min="-50" max="50" step="0.5" value="0" oninput="updateMarker()">
+                </div>
+                <div class="stat-box">Current Loss Value: <span id="currentLoss" style="color:red">0</span></div>
+            </div>
+
+            <div id="surfacePlot" style="height: 500px; width: 100%;"></div>
+            <p style="text-align: center;">Drag the sliders to observe the position change of the red dot on the bowl-shaped surface. Your goal is to find the lowest point.</p>
+        </div>
+
+        <div class="nav-links">
+            <a href="lesson4_en.html">Next: Let the Algorithm Descend the Hill Automatically (Gradient Descent) →</a>
+        </div>
+    </div>
+
+    <!-- New: Fitting Effect Modal -->
+    <div id="fitModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Fitting Effect Display</div>
+                <button class="close-btn" onclick="closeFitModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="fit-info">
+                    <p><strong>Current Parameters:</strong></p>
+                    <p>Slope k = <span id="modalK">0</span></p>
+                    <p>Intercept b = <span id="modalB">0</span></p>
+                    <p>Mean Squared Error (MSE) = <span id="modalLoss" style="color:red">0</span></p>
+                    <p>Fitting Formula: CO2 = <span id="modalFormula">0</span> × Fuel Consumption + <span id="modalFormulaB">0</span></p>
+                </div>
+                <!-- Fixed: Add canvas element -->
+                <div id="fitChartContainer">
+                    <canvas id="fitChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let globalData = [];
+        let kRange, bRange, lossValues, kGrid, bGrid;
+        let fitChart = null; // Fitting chart instance
+
+        function loadData(callback) {
+            Papa.parse("https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBMDeveloperSkillsNetwork-ML0101EN-SkillsNetwork/labs/Module%202/data/FuelConsumptionCo2.csv", {
+                download: true, header: true, dynamicTyping: true,
+                complete: function(results) { callback(results.data); },
+                error: function() {
+                    const data = [];
+                    for(let i=0; i<100; i++) {
+                        const fuel = 5 + Math.random() * 15;
+                        const co2 = fuel * 2.3 + 10 + (Math.random() - 0.5) * 5;
+                        data.push({ FUELCONSUMPTION_COMB: fuel, CO2EMISSIONS: co2 });
+                    }
+                    callback(data);
+                }
+            });
+        }
+
+        loadData(data => {
+            globalData = data.filter(d => d.FUELCONSUMPTION_COMB && d.CO2EMISSIONS).slice(0, 100);
+            drawSurface();
+        });
+
+        function calculateLoss(k, b) {
+            let loss = 0;
+            globalData.forEach(d => {
+                const pred = k * d.FUELCONSUMPTION_COMB + b;
+                loss += Math.pow(d.CO2EMISSIONS - pred, 2);
+            });
+            return loss / globalData.length;
+        }
+
+        function drawSurface() {
+            // Generate grid
+            kRange = []; bRange = [];
+            for(let k=0; k<=50; k+=5) kRange.push(k);
+            for(let b=-50; b<=50; b+=10) bRange.push(b);
+
+            const zData = [];
+            kGrid = []; bGrid = [];
+
+            for(let i=0; i<kRange.length; i++) {
+                const row = [];
+                const kRow = [];
+                const bRow = [];
+                for(let j=0; j<bRange.length; j++) {
+                    row.push(calculateLoss(kRange[i], bRange[j]));
+                    kRow.push(kRange[i]);
+                    bRow.push(bRange[j]);
+                }
+                zData.push(row);
+                kGrid.push(kRow);
+                bGrid.push(bRow);
+            }
+
+            const zDataTransposed = [];
+            for(let j=0; j<bRange.length; j++) {
+                const row = [];
+                for(let i=0; i<kRange.length; i++) {
+                    row.push(zData[i][j]);  // Swap index order
+                }
+                zDataTransposed.push(row);
+            }
+
+            const trace = {
+                z: zDataTransposed,
+                x: kRange,
+                y: bRange,
+                type: 'surface',
+                colorscale: 'Viridis',
+                opacity: 0.8
+            };
+
+            const layout = {
+                title: 'Loss Function Surface (MSE)',
+                scene: {
+                    xaxis: {title: 'k (Slope)'},
+                    yaxis: {title: 'b (Intercept)'},
+                    zaxis: {title: 'Loss (Error)'}
+                },
+                margin: {l:0, r:0, b:0, t:50}
+            };
+
+            Plotly.newPlot('surfacePlot', [trace], layout, {responsive: true});
+            updateMarker();
+        }
+
+        function updateMarker() {
+            const k = parseFloat(document.getElementById('sliderK').value);
+            const b = parseFloat(document.getElementById('sliderB').value);
+            const loss = calculateLoss(k, b);
+
+            document.getElementById('valK').innerText = k;
+            document.getElementById('valB').innerText = b;
+            document.getElementById('currentLoss').innerText = loss.toFixed(2);
+
+            // Add a red dot marker on the surface
+            const markerTrace = {
+                x: [k],
+                y: [b],
+                z: [loss],
+                mode: 'markers',
+                type: 'scatter3d',
+                marker: {size: 2, color: 'red'},
+                name: 'Current Parameters'
+            };
+
+            const currentData = document.getElementById('surfacePlot').data;
+            const surfaceTrace = currentData[0];
+            Plotly.newPlot('surfacePlot', [surfaceTrace, markerTrace], currentData.layout, {responsive: true, displayModeBar: false});
+        }
+
+        // New: Open fitting effect modal
+        function openFitModal() {
+            // Get current parameters
+            const k = parseFloat(document.getElementById('sliderK').value);
+            const b = parseFloat(document.getElementById('sliderB').value);
+            const loss = calculateLoss(k, b);
+
+            // Update parameter display in modal
+            document.getElementById('modalK').innerText = k.toFixed(2);
+            document.getElementById('modalB').innerText = b.toFixed(2);
+            document.getElementById('modalLoss').innerText = loss.toFixed(2);
+            document.getElementById('modalFormula').innerText = k.toFixed(2);
+            document.getElementById('modalFormulaB').innerText = b.toFixed(2);
+
+            // Draw fitting curve chart
+            drawFitChart(k, b);
+
+            // Show modal
+            document.getElementById('fitModal').style.display = 'flex';
+        }
+
+        // New: Close fitting effect modal
+        function closeFitModal() {
+            document.getElementById('fitModal').style.display = 'none';
+        }
+
+        // New: Draw fitting effect chart (fixed version)
+        function drawFitChart(k, b) {
+            // Prepare data
+            const fuelData = globalData.map(d => d.FUELCONSUMPTION_COMB);
+            const co2Data = globalData.map(d => d.CO2EMISSIONS);
+
+            // Generate fitting line data
+            const minFuel = Math.min(...fuelData);
+            const maxFuel = Math.max(...fuelData);
+            const fitX = [minFuel, maxFuel];
+            const fitY = [k * minFuel + b, k * maxFuel + b];
+
+            // Destroy existing chart
+            if (fitChart) {
+                fitChart.destroy();
+            }
+
+            // Fixed: Get canvas context
+            const ctx = document.getElementById('fitChart').getContext('2d');
+
+            // Set canvas size (adapt to container)
+            const container = document.getElementById('fitChartContainer');
+            ctx.canvas.width = container.clientWidth;
+            ctx.canvas.height = container.clientHeight;
+
+            // Create new chart
+            fitChart = new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    datasets: [
+                        {
+                            label: 'Actual Data',
+                            data: globalData.map(d => ({
+                                x: d.FUELCONSUMPTION_COMB,
+                                y: d.CO2EMISSIONS
+                            })),
+                            backgroundColor: 'rgba(33, 150, 243, 0.6)',
+                            pointRadius: 5,
+                            pointHoverRadius: 7
+                        },
+                        {
+                            label: `Fitted Line (y = ${k.toFixed(2)}x + ${b.toFixed(2)})`,
+                            data: [
+                                {x: fitX[0], y: fitY[0]},
+                                {x: fitX[1], y: fitY[1]}
+                            ],
+                            type: 'line',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 3,
+                            fill: false,
+                            tension: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Fuel Consumption (FUELCONSUMPTION_COMB)'
+                            },
+                            min: minFuel - 1,
+                            max: maxFuel + 1
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'CO2 Emissions (CO2EMISSIONS)'
+                            },
+                            min: Math.min(...co2Data) - 10,
+                            max: Math.max(...co2Data) + 10
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Fuel Consumption vs CO2 Emissions Fitting Effect',
+                            font: {
+                                size: 16
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.datasetIndex === 0) {
+                                        return `Fuel Consumption: ${context.parsed.x.toFixed(2)}, CO2: ${context.parsed.y.toFixed(2)}`;
+                                    } else {
+                                        return `Fitted Value: ${context.parsed.y.toFixed(2)}`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('fitModal');
+            if (event.target === modal) {
+                closeFitModal();
+            }
+        }
+    </script>
+</body>
+</html>

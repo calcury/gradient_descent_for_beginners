@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>P3 损失函数曲面</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* 新增弹窗样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .modal-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+        }
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: #666;
+            padding: 0 10px;
+        }
+        .close-btn:hover {
+            color: #000;
+        }
+        .modal-body {
+            margin-bottom: 20px;
+        }
+        .fit-info {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        .fit-info p {
+            margin: 5px 0;
+        }
+        #fitChartContainer {
+            height: 400px;
+            width: 100%;
+            position: relative;
+        }
+        /* 原有样式补充 */
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; }
+        .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .controls { margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 6px; display: flex; align-items: center; flex-wrap: wrap; gap: 15px; }
+        button { padding: 8px 16px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #1976D2; }
+        .label-group { display: flex; align-items: center; gap: 10px; margin: 0 10px; }
+        .label-group label { margin-right: 5px; font-weight: 600; }
+        .stat-box { display: inline-block; padding: 6px 12px; background: #e9ecef; border-radius: 4px; margin-left: 10px; }
+        input[type="range"] { min-width: 150px; }
+        .nav-links { margin: 20px 0; text-align: right; }
+        .nav-links a { color: #2196F3; text-decoration: none; }
+        .nav-links a:hover { text-decoration: underline; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>P3 将问题转化为“找最低点”</h1>
+            <a href="index.html">← 返回导航</a>
+        </header>
+
+        <div class="card">
+            <h2>损失函数 (Loss Function)</h2>
+            <p>既然无法直接解方程，我们定义一个<strong>损失函数</strong>来衡量模型有多“差”。</p>
+            <p>对于线性回归 y = kx + b，我们使用均方误差 (MSE)：</p>
+            <div style="background:#eee; padding:10px; border-radius:4px; text-align:center;">
+                $$L(k, b) = \frac{1}{n} \sum_{i=1}^{n} (y_i - (kx_i + b))^2$$
+            </div>
+            <p>我们的目标变成了：<strong>找到一组 (k, b)，使得 L(k, b) 最小。</strong></p>
+        </div>
+
+        <div class="card">
+            <h2>可视化：损失函数曲面</h2>
+            <p>如果把 k 和 b 作为 x,y 轴，损失值 L 作为高度 (z 轴)，我们会得到一个<strong>碗状的曲面</strong>。</p>
+            <p>最低点就是最佳的 k 和 b</p>
+
+            <div class="controls">
+                <button onclick="drawSurface()">重新绘制曲面</button>
+                <!-- 新增：查看拟合效果按钮 -->
+                <button onclick="openFitModal()" style="background-color: #4CAF50;">查看拟合效果</button>
+
+                <div class="label-group">
+                    <label>当前 k: <span id="valK">0</span></label>
+                    <input type="range" id="sliderK" min="0" max="50" step="0.1" value="0" oninput="updateMarker()">
+                </div>
+                <div class="label-group">
+                    <label>当前 b: <span id="valB">0</span></label>
+                    <input type="range" id="sliderB" min="-50" max="50" step="0.5" value="0" oninput="updateMarker()">
+                </div>
+                <div class="stat-box">当前损失值：<span id="currentLoss" style="color:red">0</span></div>
+            </div>
+
+            <div id="surfacePlot" style="height: 500px; width: 100%;"></div>
+            <p style="text-align: center;">拖动滑块，观察红点在碗状曲面上的位置变化。你的目标是找到最低点</p>
+        </div>
+
+        <div class="nav-links">
+            <a href="lesson4.html">下一步：让算法自动下山 (梯度下降) →</a>
+        </div>
+    </div>
+
+    <!-- 新增：拟合效果弹窗 -->
+    <div id="fitModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">拟合效果展示</div>
+                <button class="close-btn" onclick="closeFitModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="fit-info">
+                    <p><strong>当前参数：</strong></p>
+                    <p>斜率 k = <span id="modalK">0</span></p>
+                    <p>截距 b = <span id="modalB">0</span></p>
+                    <p>均方误差 (MSE) = <span id="modalLoss" style="color:red">0</span></p>
+                    <p>拟合公式：CO2 = <span id="modalFormula">0</span> × 油耗 + <span id="modalFormulaB">0</span></p>
+                </div>
+                <!-- 修正：添加canvas元素 -->
+                <div id="fitChartContainer">
+                    <canvas id="fitChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let globalData = [];
+        let kRange, bRange, lossValues, kGrid, bGrid;
+        let fitChart = null; // 拟合图表实例
+
+        function loadData(callback) {
+            Papa.parse("https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBMDeveloperSkillsNetwork-ML0101EN-SkillsNetwork/labs/Module%202/data/FuelConsumptionCo2.csv", {
+                download: true, header: true, dynamicTyping: true,
+                complete: function(results) { callback(results.data); },
+                error: function() {
+                    const data = [];
+                    for(let i=0; i<100; i++) {
+                        const fuel = 5 + Math.random() * 15;
+                        const co2 = fuel * 2.3 + 10 + (Math.random() - 0.5) * 5;
+                        data.push({ FUELCONSUMPTION_COMB: fuel, CO2EMISSIONS: co2 });
+                    }
+                    callback(data);
+                }
+            });
+        }
+
+        loadData(data => {
+            globalData = data.filter(d => d.FUELCONSUMPTION_COMB && d.CO2EMISSIONS).slice(0, 100);
+            drawSurface();
+        });
+
+        function calculateLoss(k, b) {
+            let loss = 0;
+            globalData.forEach(d => {
+                const pred = k * d.FUELCONSUMPTION_COMB + b;
+                loss += Math.pow(d.CO2EMISSIONS - pred, 2);
+            });
+            return loss / globalData.length;
+        }
+
+        function drawSurface() {
+            // 生成网格
+            kRange = []; bRange = [];
+            for(let k=0; k<=50; k+=5) kRange.push(k);
+            for(let b=-50; b<=50; b+=10) bRange.push(b);
+
+            const zData = [];
+            kGrid = []; bGrid = [];
+
+            for(let i=0; i<kRange.length; i++) {
+                const row = [];
+                const kRow = [];
+                const bRow = [];
+                for(let j=0; j<bRange.length; j++) {
+                    row.push(calculateLoss(kRange[i], bRange[j]));
+                    kRow.push(kRange[i]);
+                    bRow.push(bRange[j]);
+                }
+                zData.push(row);
+                kGrid.push(kRow);
+                bGrid.push(bRow);
+            }
+
+            const zDataTransposed = [];
+            for(let j=0; j<bRange.length; j++) {
+                const row = [];
+                for(let i=0; i<kRange.length; i++) {
+                    row.push(zData[i][j]);  // 交换索引顺序
+                }
+                zDataTransposed.push(row);
+            }
+
+            const trace = {
+                z: zDataTransposed,
+                x: kRange,
+                y: bRange,
+                type: 'surface',
+                colorscale: 'Viridis',
+                opacity: 0.8
+            };
+
+            const layout = {
+                title: '损失函数曲面 (MSE)',
+                scene: {
+                    xaxis: {title: 'k (斜率)'},
+                    yaxis: {title: 'b (截距)'},
+                    zaxis: {title: 'Loss (误差)'}
+                },
+                margin: {l:0, r:0, b:0, t:50}
+            };
+
+            Plotly.newPlot('surfacePlot', [trace], layout, {responsive: true});
+            updateMarker();
+        }
+
+        function updateMarker() {
+            const k = parseFloat(document.getElementById('sliderK').value);
+            const b = parseFloat(document.getElementById('sliderB').value);
+            const loss = calculateLoss(k, b);
+
+            document.getElementById('valK').innerText = k;
+            document.getElementById('valB').innerText = b;
+            document.getElementById('currentLoss').innerText = loss.toFixed(2);
+
+            // 在曲面上添加一个红点标记
+            const markerTrace = {
+                x: [k],
+                y: [b],
+                z: [loss],
+                mode: 'markers',
+                type: 'scatter3d',
+                marker: {size: 2, color: 'red'},
+                name: '当前参数'
+            };
+
+            const currentData = document.getElementById('surfacePlot').data;
+            const surfaceTrace = currentData[0];
+            Plotly.newPlot('surfacePlot', [surfaceTrace, markerTrace], currentData.layout, {responsive: true, displayModeBar: false});
+        }
+
+        // 新增：打开拟合效果弹窗
+        function openFitModal() {
+            // 获取当前参数
+            const k = parseFloat(document.getElementById('sliderK').value);
+            const b = parseFloat(document.getElementById('sliderB').value);
+            const loss = calculateLoss(k, b);
+
+            // 更新弹窗中的参数显示
+            document.getElementById('modalK').innerText = k.toFixed(2);
+            document.getElementById('modalB').innerText = b.toFixed(2);
+            document.getElementById('modalLoss').innerText = loss.toFixed(2);
+            document.getElementById('modalFormula').innerText = k.toFixed(2);
+            document.getElementById('modalFormulaB').innerText = b.toFixed(2);
+
+            // 绘制拟合曲线图
+            drawFitChart(k, b);
+
+            // 显示弹窗
+            document.getElementById('fitModal').style.display = 'flex';
+        }
+
+        // 新增：关闭拟合效果弹窗
+        function closeFitModal() {
+            document.getElementById('fitModal').style.display = 'none';
+        }
+
+        // 新增：绘制拟合效果图表（修正版本）
+        function drawFitChart(k, b) {
+            // 准备数据
+            const fuelData = globalData.map(d => d.FUELCONSUMPTION_COMB);
+            const co2Data = globalData.map(d => d.CO2EMISSIONS);
+
+            // 生成拟合线数据
+            const minFuel = Math.min(...fuelData);
+            const maxFuel = Math.max(...fuelData);
+            const fitX = [minFuel, maxFuel];
+            const fitY = [k * minFuel + b, k * maxFuel + b];
+
+            // 销毁原有图表
+            if (fitChart) {
+                fitChart.destroy();
+            }
+
+            // 修正：获取canvas元素的上下文
+            const ctx = document.getElementById('fitChart').getContext('2d');
+
+            // 设置canvas尺寸（适配容器）
+            const container = document.getElementById('fitChartContainer');
+            ctx.canvas.width = container.clientWidth;
+            ctx.canvas.height = container.clientHeight;
+
+            // 创建新图表
+            fitChart = new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    datasets: [
+                        {
+                            label: '实际数据',
+                            data: globalData.map(d => ({
+                                x: d.FUELCONSUMPTION_COMB,
+                                y: d.CO2EMISSIONS
+                            })),
+                            backgroundColor: 'rgba(33, 150, 243, 0.6)',
+                            pointRadius: 5,
+                            pointHoverRadius: 7
+                        },
+                        {
+                            label: `拟合直线 (y = ${k.toFixed(2)}x + ${b.toFixed(2)})`,
+                            data: [
+                                {x: fitX[0], y: fitY[0]},
+                                {x: fitX[1], y: fitY[1]}
+                            ],
+                            type: 'line',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 3,
+                            fill: false,
+                            tension: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '油耗 (FUELCONSUMPTION_COMB)'
+                            },
+                            min: minFuel - 1,
+                            max: maxFuel + 1
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'CO2排放量 (CO2EMISSIONS)'
+                            },
+                            min: Math.min(...co2Data) - 10,
+                            max: Math.max(...co2Data) + 10
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '油耗 vs CO2排放量 拟合效果',
+                            font: {
+                                size: 16
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.datasetIndex === 0) {
+                                        return `油耗: ${context.parsed.x.toFixed(2)}, CO2: ${context.parsed.y.toFixed(2)}`;
+                                    } else {
+                                        return `拟合值: ${context.parsed.y.toFixed(2)}`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 点击弹窗外部关闭弹窗
+        window.onclick = function(event) {
+            const modal = document.getElementById('fitModal');
+            if (event.target === modal) {
+                closeFitModal();
+            }
+        }
+    </script>
+</body>
+</html>

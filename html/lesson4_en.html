@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>P4 Gradient Descent Principle</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>P4 Gradient Descent Interactive Demonstration</h1>
+            <a href="index_en.html">← Back to Navigation</a>
+        </header>
+
+        <div class="card">
+            <h2>Principle: Descend Along the Steepest Direction</h2>
+            <p>The gradient (\(\nabla L\)) points in the direction of the steepest increase of the function. To minimize the loss, we move in the <strong>opposite direction of the gradient</strong>.</p>
+            <p>Update Formula:</p>
+            <div style="background:#eee; padding:10px; border-radius:4px; text-align:center;">
+                \(k_{new} = k_{old} - \alpha \cdot \frac{\partial L}{\partial k}\) <br>
+                \(b_{new} = b_{old} - \alpha \cdot \frac{\partial L}{\partial b}\)
+            </div>
+            <p>Where \(\alpha\) is the <strong>learning rate</strong> (step size).</p>
+        </div>
+
+        <div class="card">
+            <h2>Interactive Experiment</h2>
+            <div class="controls">
+                <button class="danger" onclick="resetPath()">Reset Starting Point</button>
+                <button onclick="stepDown()">Take One Step</button>
+                <button onclick="autoRun()">Auto Run</button>
+                <button onclick="stopAuto()">Pause</button>
+
+                <div class="label-group">
+                    <label>Learning Rate (α): <span id="lrVal">0.001</span></label>
+                    <input type="range" id="lrSlider" min="0.0001" max="0.01" step="0.0001" value="0.001" oninput="document.getElementById('lrVal').innerText=this.value">
+                </div>
+                <div class="stat-box">Step Count: <span id="stepCount">0</span></div>
+                <div class="stat-box">Current Loss: <span id="currLoss">0.00</span></div>
+                <!-- Display k and b values -->
+                <div class="stat-box">Slope k: <span id="currK">0.00</span></div>
+                <div class="stat-box">Intercept b: <span id="currB">100.00</span></div>
+                <!-- New: Display current gradient values -->
+                <div class="stat-box">Gradient dL/dk: <span id="currGradK">0.00</span></div>
+                <div class="stat-box">Gradient dL/db: <span id="currGradB">0.00</span></div>
+            </div>
+
+            <!-- New: Side-by-side plot container -->
+            <div class="plots-container">
+                <div id="scatterPlot" style="height: 500px; width: 100%;"></div>
+                <div id="gdPlot" style="height: 500px; width: 100%;"></div>
+            </div>
+
+            <p>Left: Data Points & Real-time Fitted Line | Right: Loss Surface & Gradient Descent Path (Red Trajectory)</p>
+        </div>
+
+        <div class="nav-links">
+            <a href="lesson5_en.html">Next: High-Dimensional Practical Implementation →</a>
+        </div>
+    </div>
+
+    <style>
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; font-family: Arial; }
+        .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .controls { background: #f5f5f5; padding: 15px; border-radius: 4px; margin-bottom: 15px; }
+        button { padding: 8px 16px; margin-right: 8px; border: none; border-radius: 4px; cursor: pointer; background: #4CAF50; color: white; }
+        button.danger { background: #f44336; }
+        .label-group { margin-top: 10px; }
+        .stat-box { display: inline-block; margin-left: 20px; padding: 8px; background: #e0e0e0; border-radius: 4px; }
+        input[type=range] { width: 200px; }
+        .nav-links { margin-top: 20px; text-align: center; }
+        .nav-links a { color: #2196F3; text-decoration: none; }
+
+        /* Core modification: Side-by-side layout */
+        .plots-container {
+            display: flex;
+            gap: 20px; /* Spacing between two plots */
+            width: 100%;
+            margin-bottom: 15px;
+        }
+        .plots-container > div {
+            flex: 1; /* Two plots share width equally */
+            min-width: 0; /* Prevent content overflow */
+        }
+    </style>
+
+    <script>
+        let globalData = [];
+        let k = 0, b = 0; // Initial point
+        let pathK = [], pathB = [], pathLoss = [];
+        let lr = 0.01;
+        let autoInterval;
+        let layout = null; // Save plot layout
+
+        function loadData(callback) {
+            Papa.parse("https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/IBMDeveloperSkillsNetwork-ML0101EN-SkillsNetwork/labs/Module%202/data/FuelConsumptionCo2.csv", {
+                download: true,
+                header: true,
+                dynamicTyping: true,
+                complete: function(results) {
+                    callback(results.data);
+                },
+                error: function(err) {
+                    console.log("Using mock data");
+                    const data = [];
+                    for(let i=0; i<100; i++) {
+                        const fuel = 5 + Math.random() * 15;
+                        const co2 = fuel * 2.3 + 10 + (Math.random() - 0.5) * 5;
+                        data.push({ FUELCONSUMPTION_COMB: fuel, CO2EMISSIONS: co2 });
+                    }
+                    callback(data);
+                }
+            });
+        }
+
+        loadData(data => {
+            // Filter and take first 100 points
+            globalData = data.filter(d => d.FUELCONSUMPTION_COMB && d.CO2EMISSIONS).slice(0, 100);
+            initScatterPlot(); // Initialize scatter plot
+            initPlot();
+        });
+
+        function calculateLoss(k, b) {
+            if(globalData.length === 0) return 0;
+            return globalData.reduce((acc, d) => {
+                const pred = k * d.FUELCONSUMPTION_COMB + b;
+                return acc + Math.pow(d.CO2EMISSIONS - pred, 2);
+            }, 0) / globalData.length;
+        }
+
+        function calculateGradient(k, b) {
+            let gradK = 0, gradB = 0;
+            const n = globalData.length;
+            if(n === 0) return { gradK: 0, gradB: 0 };
+
+            globalData.forEach(d => {
+                const x = d.FUELCONSUMPTION_COMB;
+                const y = d.CO2EMISSIONS;
+                const pred = k * x + b;
+                const error = pred - y;
+                gradK += (2/n) * error * x;
+                gradB += (2/n) * error;
+            });
+            return { gradK, gradB };
+        }
+
+        // New: Function to update gradient display
+        function updateGradientDisplay() {
+            const { gradK, gradB } = calculateGradient(k, b);
+            document.getElementById('currGradK').innerText = gradK.toFixed(2);
+            document.getElementById('currGradB').innerText = gradB.toFixed(2);
+        }
+
+        // Initialize scatter plot
+        function initScatterPlot() {
+            if(globalData.length === 0) return;
+
+            // Extract x and y data
+            const xData = globalData.map(d => d.FUELCONSUMPTION_COMB);
+            const yData = globalData.map(d => d.CO2EMISSIONS);
+
+            // Scatter trace
+            const scatterTrace = {
+                x: xData,
+                y: yData,
+                mode: 'markers',
+                type: 'scatter',
+                name: 'Actual Data',
+                marker: {
+                    size: 6,
+                    color: '#2196F3',
+                    opacity: 0.7
+                }
+            };
+
+            // Initial fitted line
+            const xMin = Math.min(...xData);
+            const xMax = Math.max(...xData);
+            // Generate more points for smoother line
+            const xLine = [];
+            for(let x = xMin; x <= xMax; x += 0.1) {
+                xLine.push(x);
+            }
+            const yLine = xLine.map(x => k * x + b);
+
+            const lineTrace = {
+                x: xLine,
+                y: yLine,
+                mode: 'lines',
+                type: 'scatter',
+                name: `Fitted Line (y=${k.toFixed(2)}x+${b.toFixed(2)})`,
+                line: {
+                    width: 3,
+                    color: '#f44336'
+                }
+            };
+
+            const scatterLayout = {
+                title: 'Fuel Consumption vs CO2 Emissions',
+                xaxis: { title: 'Fuel Consumption (L/100km)' },
+                yaxis: { title: 'CO2 Emissions (g/km)' },
+                margin: { l: 60, r: 20, b: 60, t: 40 },
+                showlegend: true,
+                legend: {
+                    x: 0.02,
+                    y: 0.98,
+                    bgcolor: 'rgba(255,255,255,0.8)'
+                }
+            };
+
+            Plotly.newPlot('scatterPlot', [scatterTrace, lineTrace], scatterLayout, { responsive: true, displayModeBar: false });
+        }
+
+        // Update fitted line in scatter plot in real-time
+        function updateScatterPlot() {
+            if(globalData.length === 0) return;
+
+            const xData = globalData.map(d => d.FUELCONSUMPTION_COMB);
+            const xMin = Math.min(...xData);
+            const xMax = Math.max(...xData);
+
+            // Generate dense points for smooth line
+            const xLine = [];
+            for(let x = xMin; x <= xMax; x += 0.1) {
+                xLine.push(x);
+            }
+            const yLine = xLine.map(x => k * x + b);
+
+            // Update line data and name (show k/b values in real-time)
+            const update = {
+                x: [xLine],
+                y: [yLine],
+                name: [`Fitted Line (y=${k.toFixed(2)}x+${b.toFixed(2)})`]
+            };
+
+            Plotly.restyle('scatterPlot', update, [1]); // Update second trace (fitted line)
+
+            // Update displayed k and b values
+            document.getElementById('currK').innerText = k.toFixed(2);
+            document.getElementById('currB').innerText = b.toFixed(2);
+
+            // New: Update gradient display
+            updateGradientDisplay();
+        }
+
+        function initPlot() {
+            // Generate background surface
+            const kRange = [], bRange = [];
+            for(let kVal = -5; kVal <= 35; kVal += 1) kRange.push(kVal);
+            for(let bVal = -50; bVal <= 150; bVal += 5) bRange.push(bVal);
+
+            const zData = kRange.map(kVal =>
+                bRange.map(bVal => calculateLoss(kVal, bVal))
+            );
+
+            const surfaceTrace = {
+                z: zData,
+                x: kRange,
+                y: bRange,
+                type: 'surface',
+                opacity: 0.7,
+                colorscale: 'Viridis',
+                showscale: false,
+                contours: {
+                    z: { show: true, usecolormap: true, highlightcolor: "limegreen", project: { z: true } }
+                }
+            };
+
+            layout = {
+                scene: {
+                    xaxis: { title: 'Slope k' },
+                    yaxis: { title: 'Intercept b' },
+                    zaxis: { title: 'Loss' },
+                    camera: { eye: { x: 1.5, y: 1.5, z: 1.5 } }
+                },
+                margin: { l: 0, r: 0, b: 0, t: 30 }
+            };
+
+            Plotly.newPlot('gdPlot', [surfaceTrace], layout, { responsive: true, displayModeBar: false });
+            resetPath();
+        }
+
+        function resetPath() {
+            k = 0;
+            b = 0;
+            pathK = [k];
+            pathB = [b];
+            pathLoss = [calculateLoss(k, b)];
+
+            clearInterval(autoInterval);
+            updatePlot();
+            updateScatterPlot(); // Update scatter plot on reset
+            document.getElementById('stepCount').innerText = 0;
+            document.getElementById('currLoss').innerText = pathLoss[0].toFixed(2);
+            document.getElementById('currK').innerText = k.toFixed(2); // Initialize k display
+            document.getElementById('currB').innerText = b.toFixed(2); // Initialize b display
+
+            // New: Update gradient display on reset
+            updateGradientDisplay();
+        }
+
+        function stepDown() {
+            if(globalData.length === 0) return;
+
+            const { gradK, gradB } = calculateGradient(k, b);
+            lr = parseFloat(document.getElementById('lrSlider').value);
+
+            // Gradient descent update
+            k = k - lr * gradK;
+            b = b - lr * gradB;
+
+            pathK.push(k);
+            pathB.push(b);
+            pathLoss.push(calculateLoss(k, b));
+
+            updatePlot();
+            updateScatterPlot(); // Update scatter plot every step
+            document.getElementById('stepCount').innerText = pathK.length - 1;
+            document.getElementById('currLoss').innerText = pathLoss[pathLoss.length-1].toFixed(2);
+        }
+
+        function autoRun() {
+            if(autoInterval) clearInterval(autoInterval);
+            autoInterval = setInterval(() => {
+                // Stop when loss change is minimal or too many steps
+                if(pathLoss.length > 10000) {
+                    clearInterval(autoInterval);
+                    return;
+                }
+                stepDown();
+            }, 200);
+        }
+
+        function stopAuto() {
+            clearInterval(autoInterval);
+        }
+
+        function updatePlot() {
+            // Get first trace (surface) of current plot
+            const currentPlot = document.getElementById('gdPlot');
+            const surfaceData = currentPlot.data[0];
+
+            // Create path trace
+            const pathTrace = {
+                x: pathK,
+                y: pathB,
+                z: pathLoss,
+                mode: 'lines+markers',
+                type: 'scatter3d',
+                line: {
+                    width: 6,
+                    color: 'red'
+                },
+                marker: {
+                    size: 4,
+                    color: 'red'
+                },
+                name: 'Gradient Descent Path'
+            };
+
+            // Use saved layout, keep surface
+            Plotly.newPlot('gdPlot', [surfaceData, pathTrace], layout, { responsive: true, displayModeBar: false });
+        }
+
+        // Clear timer when page unloads
+        window.addEventListener('beforeunload', function() {
+            if(autoInterval) clearInterval(autoInterval);
+        });
+    </script>
+</body>
+</html>
